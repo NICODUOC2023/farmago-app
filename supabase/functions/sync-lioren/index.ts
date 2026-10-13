@@ -489,7 +489,7 @@ async function runVerify(): Promise<Response> {
     manual_in_nearby: !!manualInNearby && !nearErr,
   };
 
-  const searchTerms = ['NIVEA', '75077334', 'DEO'];
+  const searchTerms = ['Paracetamol', 'NIVEA', 'DEMO-002', 'DEO'];
   const searchResults: Record<string, unknown> = {};
   for (const term of searchTerms) {
     const escaped = term.replace(/[(),.:;*|&"'\\%_~=<>\s]/g, (ch) => `\\${ch}`);

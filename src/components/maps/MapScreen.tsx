@@ -68,7 +68,7 @@ export function MapScreen() {
     }
   }, []);
 
-  const runSearch = useCallback(async () => {
+  const runSearch = useCallback(async (medicationId?: string | null) => {
     if (!session) {
       return;
     }
@@ -85,6 +85,7 @@ export function MapScreen() {
       const results = await findNearbyPharmacies({
         latitude: coordinates.latitude,
         longitude: coordinates.longitude,
+        ...(medicationId ? { medicationId } : {}),
       });
 
       setPharmacies(results);
@@ -102,6 +103,11 @@ export function MapScreen() {
       }
     }
   }, [session]);
+
+  const handleSelectMedication = useCallback((medication: MedicationResult) => {
+    setSelectedMedication(medication);
+    void runSearch(medication.id);
+  }, [runSearch]);
 
   const handleSignIn = useCallback(async () => {
     if (!email.trim() || !password) {
@@ -138,7 +144,7 @@ export function MapScreen() {
           </Pressable>
           <View className="ml-3 flex-1">
             {session ? (
-              <MedicationSearch selectedId={selectedMedication?.id} onSelect={setSelectedMedication} />
+              <MedicationSearch selectedId={selectedMedication?.id} onSelect={handleSelectMedication} />
             ) : (
               <Pressable className="flex-row items-center rounded-3xl bg-surface py-3 pl-4 pr-1 shadow-md shadow-indigo-900/10">
                 <Text numberOfLines={1} className="flex-1 pr-2 font-plus-medium text-[14px] text-text-secondary">
@@ -189,13 +195,34 @@ export function MapScreen() {
           />
         ) : status === 'idle' ? (
           <View className={CARD}>
-            <Text className="font-plus-semibold text-[15px] text-text-primary">
-              Encontrá farmacias con stock cerca tuyo
-            </Text>
-            <Text className="mt-1 font-plus-medium text-[13px] text-text-secondary">
-              Usamos tu ubicación solo para esta búsqueda.
-            </Text>
-            <SearchButton label="Buscar farmacias cercanas" onPress={runSearch} />
+            {selectedMedication ? (
+              <>
+                <View className="flex-row items-center">
+                  <Pill size={15} color={colors.primary} strokeWidth={2.4} />
+                  <Text numberOfLines={1} className="ml-2 flex-1 font-plus-semibold text-[14px] text-text-primary">
+                    {selectedMedication.name}
+                  </Text>
+                </View>
+                <Text className="mt-1 font-plus-medium text-[12px] text-text-secondary">
+                  Buscá farmacias que tengan este medicamento.
+                </Text>
+              </>
+            ) : (
+              <>
+                <Text className="font-plus-semibold text-[15px] text-text-primary">
+                  Encontrá farmacias con stock cerca tuyo
+                </Text>
+                <Text className="mt-1 font-plus-medium text-[13px] text-text-secondary">
+                  Usamos tu ubicación solo para esta búsqueda.
+                </Text>
+              </>
+            )}
+            <SearchButton
+              label={
+                selectedMedication ? 'Buscar farmacias con este medicamento' : 'Buscar farmacias cercanas'
+              }
+              onPress={() => void runSearch(selectedMedication?.id)}
+            />
           </View>
         ) : status === 'locating' || status === 'searching' ? (
           <View className={`${CARD} flex-row items-center`}>
@@ -212,7 +239,7 @@ export function MapScreen() {
             <Text className="mt-1 font-plus-medium text-[13px] text-text-secondary">{errorMessage}</Text>
             <View className="mt-3 flex-row gap-2">
               <Pressable
-                onPress={runSearch}
+                onPress={() => void runSearch(selectedMedication?.id)}
                 className="flex-1 flex-row items-center justify-center rounded-full bg-primary py-3">
                 <RefreshCw size={16} color="#FFFFFF" strokeWidth={2.4} />
                 <Text className="ml-2 font-plus-semibold text-[14px] text-white">Reintentar</Text>
@@ -258,29 +285,57 @@ export function MapScreen() {
                   <Text className="ml-1 font-plus-medium text-[12px] text-text-secondary">
                     {selectedPharmacy ? formatDistance(selectedPharmacy.distanceM) : ''}
                   </Text>
-                  {selectedPharmacy?.isAvailable ? (
-                    <View
-                      className="ml-2 rounded-full px-2 py-0.5"
-                      style={{ backgroundColor: colors.accentSoft }}>
-                      <Text className="font-plus-semibold text-[11px]" style={{ color: '#2F9E8F' }}>
-                        Con stock
-                      </Text>
-                    </View>
-                  ) : null}
                 </View>
+                {selectedPharmacy ? (
+                  <View className="mt-2 rounded-2xl border border-black/5 px-3 py-2">
+                    {selectedPharmacy.isAvailable ? (
+                      <>
+                        <View className="flex-row items-center">
+                          <View
+                            className="rounded-full px-2 py-0.5"
+                            style={{ backgroundColor: colors.accentSoft }}>
+                            <Text
+                              className="font-plus-semibold text-[11px]"
+                              style={{ color: '#2F9E8F' }}>
+                              Con stock
+                            </Text>
+                          </View>
+                          {selectedPharmacy.quantity != null ? (
+                            <Text className="ml-2 font-plus-medium text-[11px] text-text-secondary">
+                              {selectedPharmacy.quantity} unidad{selectedPharmacy.quantity === 1 ? '' : 'es'}
+                            </Text>
+                          ) : null}
+                        </View>
+                        {selectedPharmacy.price != null ? (
+                          <Text className="mt-1 font-plus-bold text-[15px] text-primary">
+                            ${selectedPharmacy.price.toLocaleString('es-CL')}
+                          </Text>
+                        ) : null}
+                      </>
+                    ) : (
+                      <Text className="font-plus-medium text-[13px] text-text-secondary">
+                        Sin disponibilidad registrada
+                      </Text>
+                    )}
+                  </View>
+                ) : null}
               </View>
-              {selectedPharmacy?.price != null ? (
-                <Text className="ml-2 font-plus-bold text-[15px] text-primary">
-                  ${selectedPharmacy.price.toLocaleString('es-CL')}
-                </Text>
-              ) : null}
             </View>
 
             <View className="mt-3 flex-row items-center justify-between border-t border-black/5 pt-3">
-              <Text className="font-plus-medium text-[12px] text-text-secondary">
-                {pharmacies.length} {pharmacies.length === 1 ? 'farmacia' : 'farmacias'} cerca
-              </Text>
-              <Pressable onPress={runSearch} className="flex-row items-center">
+              <View className="flex-row items-center">
+                {selectedMedication ? (
+                  <Text className="mr-2 rounded-full bg-primarySoft px-2 py-0.5 font-plus-semibold text-[10px] text-primary">
+                    {selectedMedication.name.length > 22
+                      ? `${selectedMedication.name.slice(0, 22)}…`
+                      : selectedMedication.name}
+                  </Text>
+                ) : null}
+                <Text className="font-plus-medium text-[12px] text-text-secondary">
+                  {pharmacies.length} {pharmacies.length === 1 ? 'farmacia' : 'farmacias'} cerca
+                </Text>
+              </View>
+              <Pressable onPress={() => void runSearch(selectedMedication?.id)} className="flex-row items-center">
                 <RefreshCw size={13} color={colors.primary} strokeWidth={2.6} />
                 <Text className="ml-1 font-plus-semibold text-[12px] text-primary">Actualizar</Text>
               </Pressable>
