@@ -44,7 +44,7 @@ export function GoogleMap({ pharmacies, selectedId, onSelectPharmacy }: Props) {
     return <MapBackdrop />;
   }
 
-  // Android usa Google Maps (requiere ANDROID_MAPS_API_KEY); iOS usa Apple Maps.
+  // Android usa Google Maps (requiere GOOGLE_MAPS_API_KEY); iOS usa Apple Maps.
   const provider = Platform.OS === 'android' ? Maps.PROVIDER_GOOGLE : undefined;
 
   return (

@@ -56,8 +56,7 @@ Copiá `.env.example` a `.env` y completá lo que quieras activar:
 | `EXPO_PUBLIC_MAP_PROVIDER` | `google` (por defecto) o `mapbox` |
 | `EXPO_PUBLIC_MAPBOX_ACCESS_TOKEN` | Token público de Mapbox (requiere dev build) |
 | `EXPO_PUBLIC_MAPBOX_STYLE_URL` | Style URL de Mapbox Studio |
-| `ANDROID_MAPS_API_KEY` | API key del Maps SDK de Google (se inyecta al manifest Android en build) |
-| `IOS_MAPS_API_KEY` | Opcional, solo si usás PROVIDER_GOOGLE en iOS |
+| `GOOGLE_MAPS_API_KEY` | API key del Maps SDK de Google (se inyecta al manifest Android en build; iOS usa Apple Maps) |
 | `EXPO_PUBLIC_GEMINI_API_KEY` | API key de Google AI Studio para el escaneo de recetas |
 | `EXPO_PUBLIC_GEMINI_MODEL` | Modelo de Gemini, por defecto `gemini-2.5-flash` |
 

@@ -57,7 +57,7 @@ export function PharmacyMap({ userLocation, pharmacies, selectedId, onSelectPhar
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userLocation.latitude, userLocation.longitude, pharmacyIds]);
 
-  // Android usa Google Maps (requiere ANDROID_MAPS_API_KEY); iOS usa Apple Maps.
+  // Android usa Google Maps (requiere GOOGLE_MAPS_API_KEY); iOS usa Apple Maps.
   const provider = Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined;
 
   return (
