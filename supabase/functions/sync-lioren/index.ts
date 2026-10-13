@@ -489,6 +489,27 @@ async function runVerify(): Promise<Response> {
     manual_in_nearby: !!manualInNearby && !nearErr,
   };
 
+  const searchTerms = ['NIVEA', '75077334', 'DEO'];
+  const searchResults: Record<string, unknown> = {};
+  for (const term of searchTerms) {
+    const escaped = term.replace(/[(),.:;*|&"'\\%_~=<>\s]/g, (ch) => `\\${ch}`);
+    const orFilter = [
+      `name.ilike.${escaped}*`,
+      `name.ilike.*${escaped}*`,
+      `barcode.ilike.*${escaped}*`,
+      `description.ilike.*${escaped}*`,
+    ].join(',');
+    const { data, error } = await supabase
+      .from('medications')
+      .select('id, name, barcode')
+      .or(orFilter)
+      .limit(20);
+    searchResults[term] = error
+      ? { error: error.message }
+      : { returned: data?.length ?? 0, sample_names: (data ?? []).slice(0, 5).map((r) => r.name) };
+  }
+  result.search_smoke_test = searchResults;
+
   return jsonResponse(result, 200);
 }
 

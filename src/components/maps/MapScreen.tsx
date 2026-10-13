@@ -12,6 +12,7 @@ import { Info, LogIn, MapPin, Menu, Navigation, Pill, RefreshCw } from 'lucide-r
 import { useCallback, useEffect, useState } from 'react';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { MedicationSearch } from '@/components/medications/MedicationSearch';
 import { PharmacyMap } from '@/components/maps/PharmacyMap';
 import { BottomDock } from '@/components/ui/BottomDock';
 import { colors } from '@/constants/colors';
@@ -24,6 +25,7 @@ import {
   PharmacySearchError,
   type NearbyPharmacy,
 } from '@/services/pharmacies';
+import type { MedicationResult } from '@/services/medications';
 
 type SearchStatus = 'idle' | 'locating' | 'searching' | 'success' | 'error';
 
@@ -39,6 +41,7 @@ export function MapScreen() {
   const [status, setStatus] = useState<SearchStatus>('idle');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [canOpenSettings, setCanOpenSettings] = useState(false);
+  const [selectedMedication, setSelectedMedication] = useState<MedicationResult | null>(null);
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -127,34 +130,50 @@ export function MapScreen() {
         onSelectPharmacy={setSelectedId}
       />
 
-      {/* Header */}
+      {/* Header: buscador de medicamentos (antes del mapa) + indicador de seleccion */}
       <View style={{ position: 'absolute', top: insets.top + 12, left: 16, right: 16 }} className="z-10">
         <View className="flex-row items-center">
-          <Pressable className="h-12 w-12 items-center justify-center rounded-full bg-surface shadow-md shadow-indigo-900/10">
+          <Pressable className="h-12 w-12 shrink-0 items-center justify-center rounded-full bg-surface shadow-md shadow-indigo-900/10">
             <Menu size={21} color={colors.textPrimary} strokeWidth={2.2} />
           </Pressable>
-          <Pressable className="ml-3 flex-1 flex-row items-center rounded-full bg-surface py-1 pl-4 pr-1 shadow-md shadow-indigo-900/10">
-            <Text numberOfLines={1} className="flex-1 pr-2 font-plus-medium text-[14px] text-text-secondary">
-              ¿Qué medicamento estás buscando?
-            </Text>
-            <View className="h-9 w-9 items-center justify-center rounded-full bg-primary">
-              <MapPin size={15} color="#FFFFFF" strokeWidth={2.4} />
-            </View>
-          </Pressable>
+          <View className="ml-3 flex-1">
+            {session ? (
+              <MedicationSearch selectedId={selectedMedication?.id} onSelect={setSelectedMedication} />
+            ) : (
+              <Pressable className="flex-row items-center rounded-3xl bg-surface py-3 pl-4 pr-1 shadow-md shadow-indigo-900/10">
+                <Text numberOfLines={1} className="flex-1 pr-2 font-plus-medium text-[14px] text-text-secondary">
+                  ¿Qué medicamento estás buscando?
+                </Text>
+                <View className="h-9 w-9 items-center justify-center rounded-full bg-primary">
+                  <MapPin size={15} color="#FFFFFF" strokeWidth={2.4} />
+                </View>
+              </Pressable>
+            )}
+          </View>
         </View>
-      </View>
 
-      {isExpoGoAndroid ? (
-        <View
-          style={{ position: 'absolute', top: insets.top + 68, left: 16, right: 16 }}
-          className="z-10 flex-row items-start rounded-2xl bg-surface px-3 py-2 shadow-md shadow-indigo-900/10">
-          <Info size={16} color={colors.primary} strokeWidth={2.4} />
-          <Text className="ml-2 flex-1 font-plus-medium text-[11px] leading-4 text-text-secondary">
-            En Expo Go (Android) el mapa puede verse en blanco por una limitación de Expo Go. En una
-            development build con tu API key de Google Maps se ve correctamente.
-          </Text>
-        </View>
-      ) : null}
+        {selectedMedication ? (
+          <View className="mt-2 flex-row items-center rounded-2xl bg-surface px-3 py-2 shadow-md shadow-indigo-900/10">
+            <Pill size={15} color={colors.primary} strokeWidth={2.4} />
+            <Text numberOfLines={1} className="ml-2 flex-1 font-plus-semibold text-[12px] text-text-primary">
+              {selectedMedication.name}
+            </Text>
+            <Text className="font-plus-medium text-[10px] text-text-secondary">
+              Medicamento seleccionado
+            </Text>
+          </View>
+        ) : null}
+
+        {isExpoGoAndroid ? (
+          <View className="mt-2 flex-row items-start rounded-2xl bg-surface px-3 py-2 shadow-md shadow-indigo-900/10">
+            <Info size={16} color={colors.primary} strokeWidth={2.4} />
+            <Text className="ml-2 flex-1 font-plus-medium text-[11px] leading-4 text-text-secondary">
+              En Expo Go (Android) el mapa puede verse en blanco por una limitación de Expo Go. En una
+              development build con tu API key de Google Maps se ve correctamente.
+            </Text>
+          </View>
+        ) : null}
+      </View>
 
       {/* Panel inferior: resultado / estado / acceso */}
       <View style={{ position: 'absolute', left: 16, right: 16, bottom: 132 }} className="z-10">

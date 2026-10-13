@@ -155,6 +155,8 @@ export type Database = {
         Row: {
           barcode: string | null
           created_at: string
+          description: string | null
+          external_id: string | null
           form: string | null
           generic_name: string | null
           id: string
@@ -162,13 +164,17 @@ export type Database = {
           laboratory: string | null
           name: string
           presentation: string | null
+          presentation_unit: string | null
           requires_prescription: boolean
+          source: string | null
           strength: string | null
           updated_at: string
         }
         Insert: {
           barcode?: string | null
           created_at?: string
+          description?: string | null
+          external_id?: string | null
           form?: string | null
           generic_name?: string | null
           id?: string
@@ -176,13 +182,17 @@ export type Database = {
           laboratory?: string | null
           name: string
           presentation?: string | null
+          presentation_unit?: string | null
           requires_prescription?: boolean
+          source?: string | null
           strength?: string | null
           updated_at?: string
         }
         Update: {
           barcode?: string | null
           created_at?: string
+          description?: string | null
+          external_id?: string | null
           form?: string | null
           generic_name?: string | null
           id?: string
@@ -190,7 +200,9 @@ export type Database = {
           laboratory?: string | null
           name?: string
           presentation?: string | null
+          presentation_unit?: string | null
           requires_prescription?: boolean
+          source?: string | null
           strength?: string | null
           updated_at?: string
         }
