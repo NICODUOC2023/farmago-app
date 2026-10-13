@@ -136,8 +136,11 @@ export function MapScreen() {
         onSelectPharmacy={setSelectedId}
       />
 
-      {/* Header: buscador de medicamentos (antes del mapa) + indicador de seleccion */}
-      <View style={{ position: 'absolute', top: insets.top + 12, left: 16, right: 16 }} className="z-10">
+      {/* Header: buscador de medicamentos (antes del mapa) + indicador de seleccion.
+          pointerEvents="box-none" para que, en Android, el MapView nativo no capture
+          los toques que deben llegar al TextInput del buscador (el contenedor es
+          transparente y sobre el mapa). Los hijos (input, botones) reciben el toque. */}
+      <View style={{ position: 'absolute', top: insets.top + 12, left: 16, right: 16 }} pointerEvents="box-none" className="z-10">
         <View className="flex-row items-center">
           <Pressable className="h-12 w-12 shrink-0 items-center justify-center rounded-full bg-surface shadow-md shadow-indigo-900/10">
             <Menu size={21} color={colors.textPrimary} strokeWidth={2.2} />
