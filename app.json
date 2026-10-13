@@ -40,6 +40,12 @@
         }
       ],
       [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Farmago usa tu ubicación para mostrar las farmacias cercanas con stock."
+        }
+      ],
+      [
         "expo-splash-screen",
         {
           "backgroundColor": "#EDEBFB",

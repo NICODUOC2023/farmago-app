@@ -13,6 +13,7 @@ import { useEffect } from 'react';
 import '@/global.css';
 
 import { colors } from '@/constants/colors';
+import { AuthProvider } from '@/providers/AuthProvider';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -36,10 +37,12 @@ export default function RootLayout() {
   }
 
   return (
-    <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.background } }}>
-      <Stack.Screen name="index" />
-      <Stack.Screen name="escaneo" options={{ presentation: 'modal' }} />
-      <Stack.Screen name="recetas" />
-    </Stack>
+    <AuthProvider>
+      <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.background } }}>
+        <Stack.Screen name="index" />
+        <Stack.Screen name="escaneo" options={{ presentation: 'modal' }} />
+        <Stack.Screen name="recetas" />
+      </Stack>
+    </AuthProvider>
   );
 }
