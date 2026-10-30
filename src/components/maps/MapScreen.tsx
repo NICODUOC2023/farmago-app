@@ -4,12 +4,12 @@ import {
   Linking,
   Platform,
   Pressable,
+  ScrollView,
   Text,
-  TextInput,
   View,
 } from 'react-native';
-import { Info, LogIn, MapPin, Menu, Navigation, Pill, RefreshCw } from 'lucide-react-native';
-import { useCallback, useEffect, useState } from 'react';
+import { Info, MapPin, Navigation, Pill, RefreshCw, X } from "lucide-react-native";
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { MedicationSearch } from '@/components/medications/MedicationSearch';
@@ -17,11 +17,17 @@ import { PharmacyMap } from '@/components/maps/PharmacyMap';
 import { BottomDock } from '@/components/ui/BottomDock';
 import { colors } from '@/constants/colors';
 import { SANTIAGO_CENTER } from '@/data/mock';
+import { SANTIAGO_COMMUNES, type Commune } from '@/data/communes';
 import { useAuth } from '@/providers/AuthProvider';
+import { useSelectedMedication } from '@/store/selectedMedication';
+import { useSearchQuery } from '@/store/searchQuery';
+import { Link } from 'expo-router';
 import { getCurrentCoordinates, LocationError, type Coordinates } from '@/services/location';
 import {
   findNearbyPharmacies,
   formatDistance,
+  formatHours,
+  isOpenNow,
   PharmacySearchError,
   type NearbyPharmacy,
 } from '@/services/pharmacies';
@@ -31,24 +37,33 @@ type SearchStatus = 'idle' | 'locating' | 'searching' | 'success' | 'error';
 
 const CARD = 'rounded-3xl bg-surface px-4 py-4 shadow-lg shadow-indigo-950/10';
 
-export function MapScreen() {
+export function MapScreen({ onNavigate }: { onNavigate?: (href: string) => void } = {}) {
   const insets = useSafeAreaInsets();
-  const { session, signIn } = useAuth();
+  const { session } = useAuth();
+  const selectedFromScan = useSelectedMedication((s) => s.medication);
 
   const [userLocation, setUserLocation] = useState<Coordinates | null>(null);
   const [pharmacies, setPharmacies] = useState<NearbyPharmacy[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [recommendedId, setRecommendedId] = useState<string | null>(null);
+  const processedScanRef = useRef<string | null>(null);
   const [status, setStatus] = useState<SearchStatus>('idle');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [canOpenSettings, setCanOpenSettings] = useState(false);
   const [selectedMedication, setSelectedMedication] = useState<MedicationResult | null>(null);
-
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [signingIn, setSigningIn] = useState(false);
-  const [signInError, setSignInError] = useState<string | null>(null);
+  const [radiusM, setRadiusM] = useState<number>(100_000);
+  const [locationSource, setLocationSource] = useState<'gps' | 'commune'>('gps');
+  const [showCommunePicker, setShowCommunePicker] = useState(false);
+  const [communeName, setCommuneName] = useState<string | null>(null);
+  const [initialQuery, setInitialQuery] = useState<string | undefined>(undefined);
+  const consumeSearchQuery = useSearchQuery((s) => s.consume);
+  useEffect(() => {
+    const q = consumeSearchQuery();
+    if (q) setTimeout(() => setInitialQuery(q), 0);
+  }, [consumeSearchQuery]);
 
   const selectedPharmacy = pharmacies.find((pharmacy) => pharmacy.id === selectedId) ?? null;
+
 
   // En Expo Go para Android, el SDK de Google Maps que trae Expo Go usa una
   // clave que ya no autoriza peticiones: el mapa se ve en blanco. En iOS Expo Go
@@ -68,70 +83,117 @@ export function MapScreen() {
     }
   }, []);
 
-  const runSearch = useCallback(async (medicationId?: string | null) => {
-    if (!session) {
-      return;
-    }
-
-    setErrorMessage(null);
-    setCanOpenSettings(false);
-    setStatus('locating');
-
-    try {
-      const coordinates = await getCurrentCoordinates();
-      setUserLocation(coordinates);
-
-      setStatus('searching');
-      const results = await findNearbyPharmacies({
-        latitude: coordinates.latitude,
-        longitude: coordinates.longitude,
-        ...(medicationId ? { medicationId } : {}),
-      });
-
-      setPharmacies(results);
-      setSelectedId(results[0]?.id ?? null);
-      setStatus('success');
-    } catch (error) {
-      setStatus('error');
-      if (error instanceof LocationError) {
-        setCanOpenSettings(error.code === 'permission_denied');
-        setErrorMessage(error.message);
-      } else if (error instanceof PharmacySearchError) {
-        setErrorMessage(error.message);
-      } else {
-        setErrorMessage('Ocurrió un error inesperado. Intentá de nuevo.');
+  const runSearch = useCallback(
+    async (medicationId?: string | null, coordsOverride?: Coordinates | null, radiusOverride?: number) => {
+      if (!session) {
+        return;
       }
+
+      setErrorMessage(null);
+      setCanOpenSettings(false);
+      setStatus('locating');
+
+      try {
+        let coordinates = coordsOverride ?? null;
+        if (!coordinates) {
+          if (locationSource === 'commune' && communeName) {
+            const c = SANTIAGO_COMMUNES.find((x) => x.name === communeName);
+            if (c) {
+              coordinates = { latitude: c.latitude, longitude: c.longitude };
+            } else {
+              coordinates = await getCurrentCoordinates();
+              setLocationSource('gps');
+            }
+          } else {
+            coordinates = await getCurrentCoordinates();
+            setLocationSource('gps');
+          }
+        }
+        setUserLocation(coordinates);
+
+        const effectiveRadius = radiusOverride ?? radiusM;
+        // Solo persistimos el radio cuando es una búsqueda normal (sin override).
+        // Así "Ampliar a 10 km" no deja el radio fijo en 10 km para búsquedas futuras.
+        if (radiusOverride == null) {
+          setRadiusM(effectiveRadius);
+        }
+
+        setStatus('searching');
+        const results = await findNearbyPharmacies({
+          latitude: coordinates.latitude,
+          longitude: coordinates.longitude,
+          radiusM: effectiveRadius,
+          ...(medicationId ? { medicationId } : {}),
+        });
+
+        setPharmacies(results);
+        setSelectedId(results[0]?.id ?? null);
+        setRecommendedId(results[0]?.id ?? null);
+        setStatus('success');
+      } catch (error) {
+        setStatus('error');
+        if (error instanceof LocationError) {
+          setCanOpenSettings(error.code === 'permission_denied');
+          setErrorMessage(error.message);
+          if (error.code === 'permission_denied' || error.code === 'services_disabled') {
+            setLocationSource('commune');
+            if (!communeName) {
+              setShowCommunePicker(true);
+            }
+          }
+        } else if (error instanceof PharmacySearchError) {
+          setErrorMessage(error.message);
+        } else {
+          setErrorMessage('Ocurrió un error inesperado. Intenta de nuevo.');
+        }
+      }
+    },
+    [session, radiusM, communeName, locationSource],
+  );
+
+  useEffect(() => {
+    if (selectedFromScan && processedScanRef.current !== selectedFromScan.id) {
+      processedScanRef.current = selectedFromScan.id;
+      void runSearch(selectedFromScan.id, userLocation, radiusM);
     }
-  }, [session]);
+  }, [selectedFromScan]); // eslint-disable-line react-hooks/exhaustive-deps
+
+
 
   const handleSelectMedication = useCallback((medication: MedicationResult) => {
     setSelectedMedication(medication);
     void runSearch(medication.id);
   }, [runSearch]);
 
-  const handleSignIn = useCallback(async () => {
-    if (!email.trim() || !password) {
-      setSignInError('Ingresá tu correo y contraseña.');
-      return;
-    }
+  const handleSelectCommune = useCallback((commune: Commune) => {
+    setShowCommunePicker(false);
+    setCommuneName(commune.name);
+    setLocationSource('commune');
+    const coords = { latitude: commune.latitude, longitude: commune.longitude };
+    void runSearch(selectedMedication?.id ?? null, coords);
+  }, [runSearch, selectedMedication]);
 
-    setSignInError(null);
-    setSigningIn(true);
-    try {
-      await signIn({ email: email.trim(), password });
-      setPassword('');
-    } catch (error) {
-      setSignInError(error instanceof Error ? error.message : 'No pudimos iniciar sesión.');
-    } finally {
-      setSigningIn(false);
-    }
-  }, [email, password, signIn]);
+  if (!session) {
+    return (
+      <View className="flex-1 items-center justify-center bg-background px-6">
+        <Text className="mb-4 text-center text-[16px] font-plus-semibold text-text-primary">
+          Iniciá sesión para usar farmaGO
+        </Text>
+        <Link href="/login" asChild>
+          <Pressable className="rounded-full bg-primary px-6 py-3">
+            <Text className="font-plus-semibold text-[14px] text-white">Ir a iniciar sesión</Text>
+          </Pressable>
+        </Link>
+      </View>
+    );
+  }
 
   return (
     <View className="flex-1 bg-background" style={{ flex: 1 }}>
       <PharmacyMap
         userLocation={userLocation ?? SANTIAGO_CENTER}
         pharmacies={pharmacies}
+        recommendedId={recommendedId}
         selectedId={selectedId}
         onSelectPharmacy={setSelectedId}
       />
@@ -141,17 +203,20 @@ export function MapScreen() {
           los toques que deben llegar al TextInput del buscador (el contenedor es
           transparente y sobre el mapa). Los hijos (input, botones) reciben el toque. */}
       <View style={{ position: 'absolute', top: insets.top + 12, left: 16, right: 16 }} pointerEvents="box-none" className="z-10">
-        <View className="flex-row items-center">
-          <Pressable className="h-12 w-12 shrink-0 items-center justify-center rounded-full bg-surface shadow-md shadow-indigo-900/10">
-            <Menu size={21} color={colors.textPrimary} strokeWidth={2.2} />
-          </Pressable>
-          <View className="ml-3 flex-1">
+        <View className="items-center">
+          <View className="w-full max-w-md">
             {session ? (
-              <MedicationSearch selectedId={selectedMedication?.id} onSelect={handleSelectMedication} />
+              <MedicationSearch
+                selectedId={selectedMedication?.id}
+                onSelect={handleSelectMedication}
+                locationLabel={locationSource === 'commune' ? (communeName ?? 'Elige Comuna') : 'Ubicación actual'}
+                onLocationPress={locationSource === 'commune' ? () => setShowCommunePicker(true) : undefined}
+                initialQuery={initialQuery}
+              />
             ) : (
               <Pressable className="flex-row items-center rounded-3xl bg-surface py-3 pl-4 pr-1 shadow-md shadow-indigo-900/10">
                 <Text numberOfLines={1} className="flex-1 pr-2 font-plus-medium text-[14px] text-text-secondary">
-                  ¿Qué medicamento estás buscando?
+                  ¿Qué estás buscando?
                 </Text>
                 <View className="h-9 w-9 items-center justify-center rounded-full bg-primary">
                   <MapPin size={15} color="#FFFFFF" strokeWidth={2.4} />
@@ -185,47 +250,19 @@ export function MapScreen() {
       </View>
 
       {/* Panel inferior: resultado / estado / acceso */}
-      <View style={{ position: 'absolute', left: 16, right: 16, bottom: 132 }} className="z-10">
-        {!session ? (
-          <SignInCard
-            email={email}
-            password={password}
-            loading={signingIn}
-            error={signInError}
-            onChangeEmail={setEmail}
-            onChangePassword={setPassword}
-            onSubmit={handleSignIn}
-          />
-        ) : status === 'idle' ? (
-          <View className={CARD}>
-            {selectedMedication ? (
-              <>
-                <View className="flex-row items-center">
-                  <Pill size={15} color={colors.primary} strokeWidth={2.4} />
-                  <Text numberOfLines={1} className="ml-2 flex-1 font-plus-semibold text-[14px] text-text-primary">
-                    {selectedMedication.name}
-                  </Text>
-                </View>
-                <Text className="mt-1 font-plus-medium text-[12px] text-text-secondary">
-                  Buscá farmacias que tengan este medicamento.
-                </Text>
-              </>
-            ) : (
-              <>
-                <Text className="font-plus-semibold text-[15px] text-text-primary">
-                  Encontrá farmacias con stock cerca tuyo
-                </Text>
-                <Text className="mt-1 font-plus-medium text-[13px] text-text-secondary">
-                  Usamos tu ubicación solo para esta búsqueda.
-                </Text>
-              </>
-            )}
-            <SearchButton
-              label={
-                selectedMedication ? 'Buscar farmacias con este medicamento' : 'Buscar farmacias cercanas'
-              }
-              onPress={() => void runSearch(selectedMedication?.id)}
-            />
+      <View
+        style={{ position: 'absolute', left: 16, right: 16, bottom: Math.max(insets.bottom, 8) + 96 }}
+        className="z-10">
+        {!session ? null : status === 'idle' ? (
+          <View style={{ alignItems: 'center' }}>
+            <Pressable
+              onPress={() => void runSearch(selectedMedication?.id, userLocation, radiusM)}
+              style={{ marginTop: 12, paddingHorizontal: 24, paddingVertical: 12, borderRadius: 9999, backgroundColor: colors.primary, minWidth: 220, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
+              <MapPin size={16} color="#FFFFFF" strokeWidth={2.4} />
+              <Text style={{ marginLeft: 8, color: '#FFFFFF', fontWeight: '600', fontSize: 14 }}>
+                {selectedMedication ? 'Buscar farmacias con este medicamento' : 'Buscar farmacias cercanas'}
+              </Text>
+            </Pressable>
           </View>
         ) : status === 'locating' || status === 'searching' ? (
           <View className={`${CARD} flex-row items-center`}>
@@ -242,7 +279,7 @@ export function MapScreen() {
             <Text className="mt-1 font-plus-medium text-[13px] text-text-secondary">{errorMessage}</Text>
             <View className="mt-3 flex-row gap-2">
               <Pressable
-                onPress={() => void runSearch(selectedMedication?.id)}
+                onPress={() => void runSearch(selectedMedication?.id, userLocation, radiusM)}
                 className="flex-1 flex-row items-center justify-center rounded-full bg-primary py-3">
                 <RefreshCw size={16} color="#FFFFFF" strokeWidth={2.4} />
                 <Text className="ml-2 font-plus-semibold text-[14px] text-white">Reintentar</Text>
@@ -262,168 +299,100 @@ export function MapScreen() {
               No encontramos farmacias cercanas
             </Text>
             <Text className="mt-1 font-plus-medium text-[13px] text-text-secondary">
-              No hay farmacias registradas en un radio de 5 km.
+              No hay farmacias registradas.
             </Text>
-            <SearchButton label="Buscar de nuevo" onPress={runSearch} />
+            <SearchButton
+              label="Buscar de nuevo"
+              onPress={() => void runSearch(selectedMedication?.id ?? null, userLocation, radiusM)}
+            />
           </View>
         ) : (
           <View className={CARD}>
-            <View className="flex-row items-center">
-              <View
-                className="h-12 w-12 items-center justify-center rounded-full"
-                style={{ backgroundColor: colors.primarySoft }}>
-                <Pill size={20} color={colors.primary} strokeWidth={2.4} />
+            <View className="mb-2 flex-row items-center justify-between">
+              <View className="flex-row items-center">
+                <View
+                  className="h-12 w-12 items-center justify-center rounded-full"
+                  style={{ backgroundColor: colors.primarySoft }}>
+                  <Pill size={20} color={colors.primary} strokeWidth={2.4} />
+                </View>
+                <View className="ml-3 flex-1">
+                  <Text numberOfLines={1} className="font-plus-semibold text-[15px] text-text-primary">
+                    {selectedPharmacy?.name ?? 'Farmacia'}
+                  </Text>
+                  <Text numberOfLines={1} className="mt-0.5 font-plus-medium text-[12px] text-text-secondary">
+                    {selectedPharmacy?.address ??
+                      selectedPharmacy?.chain ??
+                      'Dirección no informada'}
+                  </Text>
+                </View>
               </View>
-              <View className="ml-3 flex-1">
-                <Text numberOfLines={1} className="font-plus-semibold text-[15px] text-text-primary">
-                  {selectedPharmacy?.name ?? 'Farmacia'}
-                </Text>
-                <Text numberOfLines={1} className="mt-0.5 font-plus-medium text-[12px] text-text-secondary">
-                  {selectedPharmacy?.address ??
-                    selectedPharmacy?.chain ??
-                    'Dirección no informada'}
-                </Text>
+              <Pressable
+                onPress={() => {
+                  setStatus('idle');
+                  setPharmacies([]);
+                  setSelectedId(null);
+                  setRecommendedId(null);
+                }}
+                accessibilityRole="button"
+                accessibilityLabel="Cerrar"
+                hitSlop={8}
+                className="h-8 w-8 items-center justify-center rounded-full bg-primarySoft">
+                <X size={16} color={colors.primary} strokeWidth={2.4} />
+              </Pressable>
+            </View>
+                {selectedPharmacy ? (
+                  <Text className="mt-0.5 font-plus-medium text-[11px] text-text-secondary">
+                    {formatHours(selectedPharmacy.openingTime, selectedPharmacy.closingTime)}
+                    {isOpenNow(selectedPharmacy.openingTime, selectedPharmacy.closingTime) === true ? ' · Abierto ahora' : isOpenNow(selectedPharmacy.openingTime, selectedPharmacy.closingTime) === false ? ' · Cerrado' : ''}
+                  </Text>
+                ) : null}
+
+                {locationSource === 'gps' ? (
                 <View className="mt-1 flex-row items-center">
                   <Navigation size={12} color={colors.textSecondary} strokeWidth={2.4} />
                   <Text className="ml-1 font-plus-medium text-[12px] text-text-secondary">
                     {selectedPharmacy ? formatDistance(selectedPharmacy.distanceM) : ''}
                   </Text>
                 </View>
-                {selectedPharmacy ? (
-                  <View className="mt-2 rounded-2xl border border-black/5 px-3 py-2">
-                    {selectedPharmacy.isAvailable ? (
-                      <>
-                        <View className="flex-row items-center">
-                          <View
-                            className="rounded-full px-2 py-0.5"
-                            style={{ backgroundColor: colors.accentSoft }}>
-                            <Text
-                              className="font-plus-semibold text-[11px]"
-                              style={{ color: '#2F9E8F' }}>
-                              Con stock
-                            </Text>
-                          </View>
-                          {selectedPharmacy.quantity != null ? (
-                            <Text className="ml-2 font-plus-medium text-[11px] text-text-secondary">
-                              {selectedPharmacy.quantity} unidad{selectedPharmacy.quantity === 1 ? '' : 'es'}
-                            </Text>
-                          ) : null}
-                        </View>
-                        {selectedPharmacy.price != null ? (
-                          <Text className="mt-1 font-plus-bold text-[15px] text-primary">
-                            ${selectedPharmacy.price.toLocaleString('es-CL')}
-                          </Text>
-                        ) : null}
-                      </>
-                    ) : (
-                      <Text className="font-plus-medium text-[13px] text-text-secondary">
-                        Sin disponibilidad registrada
-                      </Text>
-                    )}
-                  </View>
                 ) : null}
-              </View>
-            </View>
-
-            <View className="mt-3 flex-row items-center justify-between border-t border-black/5 pt-3">
-              <View className="flex-row items-center">
-                {selectedMedication ? (
-                  <Text className="mr-2 rounded-full bg-primarySoft px-2 py-0.5 font-plus-semibold text-[10px] text-primary">
-                    {selectedMedication.name.length > 22
-                      ? `${selectedMedication.name.slice(0, 22)}…`
-                      : selectedMedication.name}
+                {selectedMedication && selectedPharmacy && selectedPharmacy.price != null ? (
+                  <Text className="mt-2 font-plus-bold text-[15px] text-primary">
+                    ${selectedPharmacy.price.toLocaleString('es-CL')}
                   </Text>
                 ) : null}
-                <Text className="font-plus-medium text-[12px] text-text-secondary">
-                  {pharmacies.length} {pharmacies.length === 1 ? 'farmacia' : 'farmacias'} cerca
-                </Text>
-              </View>
-              <Pressable onPress={() => void runSearch(selectedMedication?.id)} className="flex-row items-center">
-                <RefreshCw size={13} color={colors.primary} strokeWidth={2.6} />
-                <Text className="ml-1 font-plus-semibold text-[12px] text-primary">Actualizar</Text>
-              </Pressable>
-            </View>
           </View>
         )}
       </View>
 
-      <BottomDock />
-    </View>
-  );
-}
 
-type SignInCardProps = {
-  email: string;
-  password: string;
-  loading: boolean;
-  error: string | null;
-  onChangeEmail: (value: string) => void;
-  onChangePassword: (value: string) => void;
-  onSubmit: () => void;
-};
 
-// Acceso mínimo para habilitar la búsqueda (que requiere sesión). Reemplazar por
-// la pantalla de autenticación definitiva cuando esté lista.
-function SignInCard({
-  email,
-  password,
-  loading,
-  error,
-  onChangeEmail,
-  onChangePassword,
-  onSubmit,
-}: SignInCardProps) {
-  return (
-    <View className={CARD}>
-      <View className="flex-row items-center">
+      {showCommunePicker ? (
         <View
-          className="h-10 w-10 items-center justify-center rounded-full"
-          style={{ backgroundColor: colors.primarySoft }}>
-          <LogIn size={18} color={colors.primary} strokeWidth={2.4} />
+          style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.35)' }}
+          className="z-50 items-center justify-center px-6">
+          <View className="w-full max-w-md rounded-3xl bg-surface p-4" style={{ maxHeight: '70%' }}>
+            <Text className="mb-3 font-plus-bold text-[15px] text-text-primary">Selecciona una comuna</Text>
+            <ScrollView style={{ maxHeight: 400 }}>
+              {SANTIAGO_COMMUNES.map((commune) => (
+                <Pressable
+                  key={commune.name}
+                  onPress={() => handleSelectCommune(commune)}
+                  className="rounded-2xl px-3 py-2.5 active:bg-primarySoft">
+                  <Text className="font-plus-medium text-[14px] text-text-primary">{commune.name}</Text>
+                  <Text className="text-[11px] font-plus-medium text-text-secondary">{commune.region}</Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+            <Pressable
+              onPress={() => setShowCommunePicker(false)}
+              className="mt-3 items-center justify-center rounded-full bg-primarySoft py-2.5">
+              <Text className="font-plus-semibold text-[13px] text-primary">Cancelar</Text>
+            </Pressable>
+          </View>
         </View>
-        <Text className="ml-3 flex-1 font-plus-semibold text-[15px] text-text-primary">
-          Iniciá sesión para buscar farmacias
-        </Text>
-      </View>
-
-      <TextInput
-        value={email}
-        onChangeText={onChangeEmail}
-        placeholder="Correo electrónico"
-        placeholderTextColor={colors.textSecondary}
-        autoCapitalize="none"
-        autoCorrect={false}
-        keyboardType="email-address"
-        className="mt-3 rounded-2xl bg-background px-4 py-3 font-plus-medium text-[14px] text-text-primary"
-      />
-      <TextInput
-        value={password}
-        onChangeText={onChangePassword}
-        placeholder="Contraseña"
-        placeholderTextColor={colors.textSecondary}
-        autoCapitalize="none"
-        autoCorrect={false}
-        secureTextEntry
-        className="mt-2 rounded-2xl bg-background px-4 py-3 font-plus-medium text-[14px] text-text-primary"
-      />
-
-      {error ? (
-        <Text className="mt-2 font-plus-medium text-[12px]" style={{ color: '#D6455D' }}>
-          {error}
-        </Text>
       ) : null}
 
-      <Pressable
-        onPress={onSubmit}
-        disabled={loading}
-        className="mt-3 items-center justify-center rounded-full bg-primary py-3"
-        style={{ opacity: loading ? 0.6 : 1 }}>
-        {loading ? (
-          <ActivityIndicator color="#FFFFFF" />
-        ) : (
-          <Text className="font-plus-semibold text-[14px] text-white">Iniciar sesión</Text>
-        )}
-      </Pressable>
+      <BottomDock />
     </View>
   );
 }
@@ -432,7 +401,9 @@ function SearchButton({ label, onPress }: { label: string; onPress: () => void }
   return (
     <Pressable
       onPress={onPress}
-      className="mt-3 flex-row items-center justify-center rounded-full bg-primary py-3">
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      className="mt-3 flex-row items-center justify-center rounded-full bg-primary py-4" style={{ minWidth: 250 }}>
       <MapPin size={16} color="#FFFFFF" strokeWidth={2.4} />
       <Text className="ml-2 font-plus-semibold text-[14px] text-white">{label}</Text>
     </Pressable>

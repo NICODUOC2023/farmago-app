@@ -4,6 +4,7 @@ import MapView, { Marker, PROVIDER_GOOGLE, type Region } from 'react-native-maps
 
 import { MapMarkerPin } from '@/components/maps/MapMarkerPin';
 import { PASTEL_MAP_STYLE } from '@/constants/mapStyle';
+import { isStockFresh } from '@/constants/stock';
 import type { Coordinates } from '@/services/location';
 import type { NearbyPharmacy } from '@/services/pharmacies';
 
@@ -11,6 +12,7 @@ type Props = {
   /** Ubicación actual del usuario (solo en memoria, nunca persistida). */
   userLocation: Coordinates;
   pharmacies: NearbyPharmacy[];
+  recommendedId?: string | null;
   selectedId?: string | null;
   onSelectPharmacy?: (id: string) => void;
 };
@@ -22,9 +24,20 @@ function regionFor(coordinates: Coordinates): Region {
   return { ...coordinates, ...INITIAL_DELTA };
 }
 
-export function PharmacyMap({ userLocation, pharmacies, selectedId, onSelectPharmacy }: Props) {
+export function PharmacyMap({ userLocation, pharmacies, recommendedId, selectedId, onSelectPharmacy }: Props) {
   const mapRef = useRef<MapView>(null);
   const pharmacyIds = pharmacies.map((pharmacy) => pharmacy.id).join(',');
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !selectedId) return;
+    const pharmacy = pharmacies.find((p) => p.id === selectedId);
+    if (!pharmacy) return;
+    map.animateToRegion(
+      { latitude: pharmacy.latitude, longitude: pharmacy.longitude, latitudeDelta: 0.02, longitudeDelta: 0.02 },
+      300,
+    );
+  }, [selectedId, pharmacies]);
 
   useEffect(() => {
     if (__DEV__) {
@@ -77,8 +90,9 @@ export function PharmacyMap({ userLocation, pharmacies, selectedId, onSelectPhar
             coordinate={{ latitude: pharmacy.latitude, longitude: pharmacy.longitude }}
             title={pharmacy.name}
             description={pharmacy.address ?? undefined}
+            accessibilityLabel={`${pharmacy.name}. ${pharmacy.address ?? ''}. ${isStockFresh(pharmacy.lastSyncedAt) ? 'Con stock' : 'Stock desactualizado'}`}
             onPress={() => onSelectPharmacy?.(pharmacy.id)}>
-            <MapMarkerPin active={pharmacy.id === selectedId} />
+            <MapMarkerPin active={pharmacy.id === recommendedId} stale={!isStockFresh(pharmacy.lastSyncedAt)} />
           </Marker>
         ))}
       </MapView>

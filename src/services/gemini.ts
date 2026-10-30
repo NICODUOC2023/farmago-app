@@ -1,78 +1,86 @@
-export const GEMINI_API_KEY = process.env.EXPO_PUBLIC_GEMINI_API_KEY;
-export const GEMINI_MODEL = process.env.EXPO_PUBLIC_GEMINI_MODEL ?? 'gemini-2.5-flash';
+import { isSupabaseConfigured, getSupabase } from '@/lib/supabase';
 
 export type AnalyzedMedicine = {
   nombre: string;
+  principio_activo: string;
+  concentracion: string;
+  presentacion: string;
   dosis: string;
   frecuencia: string;
   duracion: string;
+  cantidad: string;
+  codigo_barras: string;
 };
 
 export type AnalyzedPrescription = {
+  tipo: 'receta' | 'caja' | 'desconocido';
   medicamentos: AnalyzedMedicine[];
+  codigo_barras: string;
   notas: string;
   medico: string | null;
   institucion: string | null;
   isDemo: boolean;
 };
 
-type GeminiPart =
-  | { text: string }
-  | { inline_data: { mime_type: string; data: string } };
-
-type GenerateContentResponse = {
-  candidates?: {
-    content?: {
-      parts?: { text?: string }[];
-    };
-  }[];
-};
-
-const PROMPT = `Analiza esta foto de una receta o indicación médica.
-
-Devuelve SOLO JSON con esta forma (sin markdown):
-{
-  "medicamentos": [
-    { "nombre": "nombre del medicamento", "dosis": "cantidad/horario", "frecuencia": "cada cuánto se toma", "duracion": "por cuánto tiempo" }
-  ],
-  "notas": "otras instrucciones del médico",
-  "medico": "nombre del médico o null si no aparece",
-  "institucion": "clínica/hospital o null si no aparece"
-}
-
-Reglas:
-- "medicamentos" siempre es un arreglo; si no hay ninguno, arreglo vacío.
-- Cuando un campo no aparezca en la imagen usa string vacío o null según el tipo.
-- Escribe todo en español, manteniendo el nombre comercial exacto del medicamento.`;
-
-function stripFences(text: string): string {
-  return text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
-}
-
-function parseResult(raw: string): Omit<AnalyzedPrescription, 'isDemo'> {
-  const parsed = JSON.parse(stripFences(raw)) as Partial<AnalyzedPrescription>;
-  const medicamentos = Array.isArray(parsed.medicamentos)
-    ? parsed.medicamentos.map((m) => ({
-        nombre: typeof m.nombre === 'string' ? m.nombre : '',
-        dosis: typeof m.dosis === 'string' ? m.dosis : '',
-        frecuencia: typeof m.frecuencia === 'string' ? m.frecuencia : '',
-        duracion: typeof m.duracion === 'string' ? m.duracion : '',
-      }))
-    : [];
+function normalizeMedicine(m: unknown): AnalyzedMedicine {
+  const obj = (m && typeof m === 'object' ? m : {}) as Record<string, unknown>;
   return {
+    nombre: typeof obj.nombre === 'string' ? obj.nombre : '',
+    principio_activo: typeof obj.principio_activo === 'string' ? obj.principio_activo : '',
+    concentracion: typeof obj.concentracion === 'string' ? obj.concentracion : '',
+    presentacion: typeof obj.presentacion === 'string' ? obj.presentacion : '',
+    dosis: typeof obj.dosis === 'string' ? obj.dosis : '',
+    frecuencia: typeof obj.frecuencia === 'string' ? obj.frecuencia : '',
+    duracion: typeof obj.duracion === 'string' ? obj.duracion : '',
+    cantidad: typeof obj.cantidad === 'string' ? obj.cantidad : '',
+    codigo_barras: typeof obj.codigo_barras === 'string' ? obj.codigo_barras : '',
+  };
+}
+
+function parseResult(raw: unknown): Omit<AnalyzedPrescription, 'isDemo'> {
+  const obj = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+  const medicamentos = Array.isArray(obj.medicamentos)
+    ? obj.medicamentos.map(normalizeMedicine)
+    : [];
+  const tipo = obj.tipo === 'receta' || obj.tipo === 'caja' ? obj.tipo : 'desconocido';
+  return {
+    tipo,
     medicamentos,
-    notas: typeof parsed.notas === 'string' ? parsed.notas : '',
-    medico: typeof parsed.medico === 'string' ? parsed.medico : null,
-    institucion: typeof parsed.institucion === 'string' ? parsed.institucion : null,
+    codigo_barras: typeof obj.codigo_barras === 'string' ? obj.codigo_barras : '',
+    notas: typeof obj.notas === 'string' ? obj.notas : '',
+    medico: typeof obj.medico === 'string' ? obj.medico : null,
+    institucion: typeof obj.institucion === 'string' ? obj.institucion : null,
   };
 }
 
 function mockResult(): AnalyzedPrescription {
   return {
+    tipo: 'receta',
     medicamentos: [
-      { nombre: 'Paracetamol 500mg', dosis: '1 comprimido', frecuencia: 'cada 8 horas', duracion: '5 días' },
-      { nombre: 'Enalapril 5mg', dosis: '1 comprimido', frecuencia: 'cada 24 horas', duracion: '30 días' },
+      {
+        nombre: 'Paracetamol 500mg',
+        principio_activo: 'Paracetamol',
+        concentracion: '500 mg',
+        presentacion: 'Comprimidos',
+        dosis: '1 comprimido',
+        frecuencia: 'cada 8 horas',
+        duracion: '5 días',
+        cantidad: '1 caja',
+        codigo_barras: '',
+      },
+      {
+        nombre: 'Enalapril 5mg',
+        principio_activo: 'Enalapril',
+        concentracion: '5 mg',
+        presentacion: 'Comprimidos',
+        dosis: '1 comprimido',
+        frecuencia: 'cada 24 horas',
+        duracion: '30 días',
+        cantidad: '1 caja',
+        codigo_barras: '',
+      },
     ],
+    codigo_barras: '',
     notas: 'Tomar después de las comidas. No suspender sin indicación médica.',
     medico: 'Dra. Valeria Rojas',
     institucion: 'Clínica Andes',
@@ -80,49 +88,33 @@ function mockResult(): AnalyzedPrescription {
   };
 }
 
-export function hasGeminiKey(): boolean {
-  return Boolean(GEMINI_API_KEY);
-}
-
-// Sin API key devuelve una receta mock para seguir validando el flujo completo.
+// La clave de Gemini NO se expone en el cliente. El OCR se realiza en la
+// Edge Function `ocr-prescription`, que usa GEMINI_API_KEY como secret.
 export async function analyzePrescriptionImage(input: {
   base64: string;
   mimeType: string;
 }): Promise<AnalyzedPrescription> {
-  if (!GEMINI_API_KEY) {
+  if (!isSupabaseConfigured) {
     return mockResult();
   }
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${encodeURIComponent(GEMINI_API_KEY)}`;
+  const supabase = getSupabase();
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
 
-  const body: { contents: { parts: GeminiPart[] }[]; generationConfig: Record<string, unknown> | undefined } = {
-    contents: [
-      {
-        parts: [
-          { text: PROMPT },
-          { inline_data: { mime_type: input.mimeType, data: input.base64 } },
-        ],
-      },
-    ],
-    generationConfig: { responseMimeType: 'application/json', temperature: 0.2 },
-  };
+  if (!session) {
+    throw new Error('Iniciá sesión para escanear recetas.');
+  }
 
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
+  const { data, error } = await supabase.functions.invoke('ocr-prescription', {
+    body: { imageBase64: input.base64, mimeType: input.mimeType },
   });
 
-  if (!response.ok) {
-    const detail = await response.text().catch(() => '');
-    throw new Error(`Gemini respondió ${response.status}: ${detail}`);
+  if (error) {
+    throw new Error(error.message || 'No se pudo analizar la receta.');
   }
 
-  const json = (await response.json()) as GenerateContentResponse;
-  const text = json.candidates?.[0]?.content?.parts?.map((p) => p.text ?? '').join('');
-  if (!text) {
-    throw new Error('Gemini no devolvió texto en la respuesta.');
-  }
-
-  return { ...parseResult(text), isDemo: false };
+  const payload = (data ?? {}) as { result?: unknown; isDemo?: boolean };
+  return { ...parseResult(payload.result), isDemo: payload.isDemo === true };
 }

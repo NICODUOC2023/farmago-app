@@ -5,12 +5,14 @@ import { colors } from '@/constants/colors';
 
 type Props = {
   active?: boolean;
+  stale?: boolean;
   size?: number;
 };
 
 // Pin custom para los PointAnnotation de Mapbox y para el placeholder web.
-export function MapMarkerPin({ active, size = 40 }: Props) {
+export function MapMarkerPin({ active, stale, size = 40 }: Props) {
   const inner = Math.round(size * 0.78);
+  const color = active ? colors.primary : stale ? '#B0B0B0' : colors.textSecondary;
   return (
     <View style={[styles.wrap, { width: size + 10, height: size + 12 }]}>
       <View
@@ -18,13 +20,14 @@ export function MapMarkerPin({ active, size = 40 }: Props) {
           styles.pin,
           { width: inner, height: inner, borderRadius: inner / 2 },
           active && { borderColor: colors.primary },
+          stale && { borderColor: '#D9D9D9', backgroundColor: '#F5F5F5' },
         ]}>
-        <MapPin size={Math.round(size * 0.62)} color={active ? colors.primary : colors.textSecondary} strokeWidth={2.4} />
+        <MapPin size={Math.round(size * 0.62)} color={color} strokeWidth={2.4} />
       </View>
       <View
         style={[
           styles.tip,
-          active ? { backgroundColor: colors.primary } : { backgroundColor: colors.textSecondary },
+          { backgroundColor: color },
         ]}
       />
     </View>

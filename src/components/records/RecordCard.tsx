@@ -17,6 +17,8 @@ export function RecordCard({ variant, pharmacy, medicine, time, taken = false, o
     <View className="mx-5 flex-row items-center rounded-3xl bg-surface px-4 py-3.5 shadow-sm shadow-indigo-950/5">
       {variant === 'tratamiento' && (
         <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={taken ? 'Marcar como pendiente' : 'Marcar como tomada'}
           onPress={onToggle}
           hitSlop={8}
           className="mr-3.5 h-8 w-8 items-center justify-center rounded-full border-2"

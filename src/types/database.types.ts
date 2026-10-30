@@ -212,6 +212,7 @@ export type Database = {
         Row: {
           address: string | null
           chain: string | null
+          closing_time: string | null
           comuna: string | null
           created_at: string
           external_id: string | null
@@ -219,6 +220,7 @@ export type Database = {
           is_active: boolean
           location: unknown
           name: string
+          opening_time: string | null
           phone: string | null
           region: string | null
           source: string | null
@@ -227,6 +229,7 @@ export type Database = {
         Insert: {
           address?: string | null
           chain?: string | null
+          closing_time?: string | null
           comuna?: string | null
           created_at?: string
           external_id?: string | null
@@ -234,6 +237,7 @@ export type Database = {
           is_active?: boolean
           location: unknown
           name: string
+          opening_time?: string | null
           phone?: string | null
           region?: string | null
           source?: string | null
@@ -242,6 +246,7 @@ export type Database = {
         Update: {
           address?: string | null
           chain?: string | null
+          closing_time?: string | null
           comuna?: string | null
           created_at?: string
           external_id?: string | null
@@ -249,6 +254,7 @@ export type Database = {
           is_active?: boolean
           location?: unknown
           name?: string
+          opening_time?: string | null
           phone?: string | null
           region?: string | null
           source?: string | null
@@ -1030,6 +1036,28 @@ export type Database = {
       enablelongtransactions: { Args: never; Returns: string }
       equals: { Args: { geom1: unknown; geom2: unknown }; Returns: boolean }
       export_my_data: { Args: never; Returns: Json }
+      find_pharmacy_coverage: {
+        Args: {
+          p_lat: number
+          p_lng: number
+          p_medication_ids: string[]
+          p_radius_m?: number
+        }
+        Returns: {
+          address: string
+          coverage_percent: number
+          distance_m: number
+          last_synced_at: string
+          latitude: number
+          longitude: number
+          matched_count: number
+          matched_medications: Json
+          pharmacy_id: string
+          pharmacy_name: string
+          required_count: number
+          total_price: number
+        }[]
+      }
       geometry: { Args: { "": string }; Returns: unknown }
       geometry_above: {
         Args: { geom1: unknown; geom2: unknown }
@@ -1152,12 +1180,14 @@ export type Database = {
         Returns: {
           address: string
           chain: string
+          closing_time: string
           distance_m: number
           is_available: boolean
           last_synced_at: string
           latitude: number
           longitude: number
           name: string
+          opening_time: string
           pharmacy_id: string
           price: number
           quantity: number

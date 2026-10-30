@@ -8,6 +8,8 @@ export function ScanFab() {
 
   return (
     <Pressable
+      accessibilityRole="button"
+      accessibilityLabel="Escanear receta"
       onPress={() => router.push('/escaneo')}
       style={({ pressed }) => (pressed ? styles.pressed : undefined)}
       hitSlop={6}>

@@ -1,16 +1,21 @@
-import { CalendarClock, Check, FileText, Pill } from 'lucide-react-native';
-import { Pressable, Text, View } from 'react-native';
+import { CalendarClock, Check, FileText, Search, Trash2 } from 'lucide-react-native';
+import { Alert, Pressable, Text, View } from 'react-native';
 
 import { colors } from '@/constants/colors';
+import { useSearchQuery } from '@/store/searchQuery';
+import { useRouter } from 'expo-router';
 import { TratamientoGroup } from '@/data/mock';
 import { maxDurationText } from '@/utils/tratamiento';
 
 type Props = {
   group: TratamientoGroup;
   onToggle: (itemId: string, slot: number) => void;
+  onDelete?: (groupId: string) => void;
 };
 
-export function TreatmentCard({ group, onToggle }: Props) {
+export function TreatmentCard({ group, onToggle, onDelete }: Props) {
+  const router = useRouter();
+  const setPendingQuery = useSearchQuery((s) => s.setPendingQuery);
   const totalSlots = group.items.reduce((sum, item) => sum + item.taken.length, 0);
   const takenSlots = group.items.reduce((sum, item) => sum + item.taken.filter(Boolean).length, 0);
   const duration = maxDurationText(group.items.map((item) => item.duration));
@@ -23,29 +28,50 @@ export function TreatmentCard({ group, onToggle }: Props) {
             <Text className="text-[15px] font-plus-bold text-text-primary">{group.title}</Text>
             <SourceBadge source={group.source} />
           </View>
-          {(group.institucion || group.medico) && (
-            <Text className="mt-0.5 text-xs font-plus-medium text-text-secondary">
-              {[group.institucion, group.medico].filter(Boolean).join(' · ')}
-            </Text>
-          )}
         </View>
-        <Text className="text-xs font-plus-semibold" style={{ color: colors.textSecondary }}>
-          {takenSlots}/{totalSlots} tomadas
-        </Text>
+        {onDelete ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Eliminar tratamiento"
+            onPress={() =>
+              Alert.alert('Eliminar tratamiento', '¿Seguro que querés eliminar este tratamiento?', [
+                { text: 'Cancelar', style: 'cancel' },
+                { text: 'Eliminar', style: 'destructive', onPress: () => onDelete(group.id) },
+              ])
+            }
+            hitSlop={8}
+            className="ml-2">
+            <Trash2 size={16} color={colors.textSecondary} strokeWidth={2.2} />
+          </Pressable>
+        ) : null}
       </View>
 
-      {duration && (
+      {duration ? (
         <View className="mt-2.5 flex-row items-center gap-1.5 self-start rounded-full px-2.5 py-1" style={{ backgroundColor: colors.accentSoft }}>
           <CalendarClock size={13} color={colors.accent} strokeWidth={2.4} />
           <Text className="text-[11px] font-plus-bold" style={{ color: colors.accent }}>
-            Duración: {duration}
+            {duration} restantes
           </Text>
         </View>
-      )}
+      ) : null}
+
+      <View className="mt-2.5">
+        <View className="h-2 w-full overflow-hidden rounded-full bg-background">
+          <View
+            style={{
+              width: `${totalSlots > 0 ? (takenSlots / totalSlots) * 100 : 0}%`,
+              height: '100%',
+              backgroundColor: colors.primary,
+            }}
+          />
+        </View>
+        <Text className="mt-1 text-[10px] font-plus-medium text-text-secondary">
+          Adherencia: {totalSlots > 0 ? Math.round((takenSlots / totalSlots) * 100) : 0}%
+        </Text>
+      </View>
 
       <View className="mt-3.5 gap-2.5">
         {group.items.map((item) => {
-          const itemTaken = item.taken.filter(Boolean).length;
           return (
             <View key={item.id} className="rounded-2xl px-3 py-3" style={{ backgroundColor: colors.primarySoft }}>
               <View className="flex-row items-center">
@@ -55,15 +81,25 @@ export function TreatmentCard({ group, onToggle }: Props) {
                     {[item.dose, item.frequency, item.duration].filter(Boolean).join(' · ')}
                   </Text>
                 </View>
-                <View className="ml-2 h-9 w-9 items-center justify-center rounded-xl" style={{ backgroundColor: colors.accentSoft }}>
-                  <Pill size={16} color={colors.accent} strokeWidth={2.2} />
-                </View>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`Buscar ${item.medicine}`}
+                  hitSlop={8}
+                  className="ml-2 h-9 w-9 items-center justify-center"
+                  onPress={() => {
+                    setPendingQuery(item.medicine);
+                    router.push('/');
+                  }}>
+                  <Search size={18} color={colors.primary} strokeWidth={2.4} />
+                </Pressable>
               </View>
 
               <View className="mt-2.5 flex-row items-center gap-2.5 border-t border-white/70 pt-2.5">
                 {item.taken.map((taken, slot) => (
                   <Pressable
                     key={`${item.id}-${slot}`}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Marcar toma ${slot + 1} como ${taken ? 'pendiente' : 'tomada'}`}
                     onPress={() => onToggle(item.id, slot)}
                     hitSlop={6}
                     className="h-7 w-7 items-center justify-center rounded-full border-2"
@@ -74,9 +110,6 @@ export function TreatmentCard({ group, onToggle }: Props) {
                     {taken && <Check size={14} color="#FFFFFF" strokeWidth={3} />}
                   </Pressable>
                 ))}
-                <Text className="text-[11px] font-plus-semibold" style={{ color: colors.textSecondary }}>
-                  {itemTaken}/{item.taken.length} tomadas
-                </Text>
               </View>
             </View>
           );
@@ -102,13 +135,8 @@ function SourceBadge({ source }: { source: TratamientoGroup['source'] }) {
   const isScan = source === 'escaneado';
   return (
     <View
-      className="rounded-full px-2 py-0.5"
       style={{ backgroundColor: isScan ? colors.primarySoft : colors.accentSoft }}>
-      <Text
-        className="text-[10px] font-plus-bold"
-        style={{ color: isScan ? colors.primary : colors.accent }}>
-        {isScan ? 'Escaneado' : 'Manual'}
-      </Text>
+
     </View>
   );
 }

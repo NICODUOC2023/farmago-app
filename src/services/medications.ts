@@ -118,5 +118,14 @@ export async function searchMedications(query: string): Promise<MedicationResult
     presentation_unit: row.presentation_unit ?? null,
   }));
 
-  return prioritizeByNameStart(results, trimmed).slice(0, RESULT_LIMIT);
+  // Elimina duplicados por nombre + presentacion (mismo producto en distintas fuentes).
+  const seen = new Set<string>();
+  const deduped = results.filter((r) => {
+    const key = `${r.name.trim().toLowerCase()}|${(r.presentation_unit ?? '').trim().toLowerCase()}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
+  return prioritizeByNameStart(deduped, trimmed).slice(0, RESULT_LIMIT);
 }

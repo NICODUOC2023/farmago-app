@@ -38,8 +38,9 @@ export default function RootLayout() {
 
   return (
     <AuthProvider>
-      <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.background } }}>
+      <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.background } }} initialRouteName="login">
         <Stack.Screen name="index" />
+        <Stack.Screen name="login" />
         <Stack.Screen name="escaneo" options={{ presentation: 'modal' }} />
         <Stack.Screen name="recetas" />
       </Stack>

@@ -69,7 +69,7 @@ export async function getCurrentCoordinates(): Promise<Coordinates> {
   if (!granted) {
     throw new LocationError(
       'permission_denied',
-      'Necesitamos tu ubicación para buscar farmacias cercanas. Podés habilitarla desde los ajustes.',
+      'Necesitamos tu ubicación para buscar farmacias cercanas. Puedes habilitarla desde los ajustes.',
     );
   }
 
@@ -95,6 +95,6 @@ export async function getCurrentCoordinates(): Promise<Coordinates> {
     if (error instanceof LocationError) {
       throw error;
     }
-    throw new LocationError('unavailable', 'No pudimos obtener tu ubicación. Intentá de nuevo.');
+    throw new LocationError('unavailable', 'No pudimos obtener tu ubicación. Intenta de nuevo.');
   }
 }

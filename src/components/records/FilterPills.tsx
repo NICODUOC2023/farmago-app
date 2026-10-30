@@ -21,6 +21,9 @@ export function FilterPills({ options, selected, onSelect }: Props) {
           <Pressable
             key={option}
             onPress={() => onSelect(option)}
+            accessibilityRole="button"
+            accessibilityLabel={`Filtro ${option}`}
+            accessibilityState={{ selected: isActive }}
             className={`rounded-full px-4 py-2 ${isActive ? 'bg-primary' : ''}`}
             style={!isActive ? { backgroundColor: colors.primarySoft } : undefined}>
             <Text

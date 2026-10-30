@@ -25,6 +25,8 @@ export type NearbyPharmacy = {
   price: number | null;
   quantity: number | null;
   lastSyncedAt: string | null;
+  openingTime: string | null;
+  closingTime: string | null;
   /**
    * La RPC `nearby_pharmacies` todavía NO devuelve el teléfono, por lo que
    * siempre llega `null`. Se deja tipado para no inventar el dato.
@@ -68,6 +70,8 @@ function normalize(row: NearbyPharmaciesRow): NearbyPharmacy {
     price: row.price ?? null,
     quantity: row.quantity ?? null,
     lastSyncedAt: row.last_synced_at ?? null,
+    openingTime: row.opening_time ?? null,
+    closingTime: row.closing_time ?? null,
     phone: null,
   };
 }
@@ -105,6 +109,99 @@ export async function findNearbyPharmacies({
   }
 
   return (data ?? []).map(normalize);
+}
+
+export type PharmacyCoverageMedication = {
+  medication_id: string;
+  name: string;
+  price: number | null;
+  quantity: number | null;
+  last_synced_at: string | null;
+};
+
+export type PharmacyCoverage = {
+  pharmacy_id: string;
+  pharmacy_name: string;
+  address: string | null;
+  latitude: number;
+  longitude: number;
+  matched_count: number;
+  required_count: number;
+  coverage_percent: number;
+  distance_m: number;
+  total_price: number | null;
+  last_synced_at: string | null;
+  matched_medications: PharmacyCoverageMedication[];
+};
+
+export type FindPharmacyCoverageParams = {
+  medicationIds: string[];
+  latitude: number;
+  longitude: number;
+  radiusM?: number;
+};
+
+export async function findPharmacyCoverage({
+  medicationIds,
+  latitude,
+  longitude,
+  radiusM = DEFAULT_RADIUS_M,
+}: FindPharmacyCoverageParams): Promise<PharmacyCoverage[]> {
+  const supabase = getSupabase();
+
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+
+  if (!session) {
+    throw new PharmacySearchError('not_authenticated', 'Iniciá sesión para buscar cobertura de receta.');
+  }
+
+  const { data, error } = await (supabase as any).rpc('find_pharmacy_coverage', {
+    p_medication_ids: medicationIds,
+    p_lat: latitude,
+    p_lng: longitude,
+    p_radius_m: radiusM,
+  });
+
+  if (error) {
+    throw new PharmacySearchError('request_failed', error.message);
+  }
+
+  return (data ?? []).map((row: Record<string, unknown>) => ({
+    pharmacy_id: row.pharmacy_id as string,
+    pharmacy_name: row.pharmacy_name as string,
+    address: (row.address as string) ?? null,
+    latitude: row.latitude as number,
+    longitude: row.longitude as number,
+    matched_count: row.matched_count as number,
+    required_count: row.required_count as number,
+    coverage_percent: row.coverage_percent as number,
+    distance_m: row.distance_m as number,
+    total_price: (row.total_price as number) ?? null,
+    last_synced_at: (row.last_synced_at as string) ?? null,
+    matched_medications: (row.matched_medications as PharmacyCoverageMedication[]) ?? [],
+  }));
+}
+
+export function formatHours(opening: string | null, closing: string | null): string {
+  if (!opening || !closing) return 'Horario no informado';
+  return `${opening.slice(0, 5)} - ${closing.slice(0, 5)}`;
+}
+
+export function isOpenNow(opening: string | null, closing: string | null): boolean | null {
+  if (!opening || !closing) return null;
+  const now = new Date();
+  const [oh, om] = opening.split(':').map(Number);
+  const [ch, cm] = closing.split(':').map(Number);
+  const mins = now.getHours() * 60 + now.getMinutes();
+  const openMins = oh * 60 + om;
+  const closeMins = ch * 60 + cm;
+  if (closeMins < openMins) {
+    // cruza medianoche
+    return mins >= openMins || mins <= closeMins;
+  }
+  return mins >= openMins && mins <= closeMins;
 }
 
 /**

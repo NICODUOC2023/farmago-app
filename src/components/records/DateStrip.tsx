@@ -22,6 +22,8 @@ export function DateStrip({ selected, onSelect }: Props) {
           <Pressable
             key={day.date}
             onPress={() => onSelect(day.date)}
+            accessibilityRole="button"
+            accessibilityLabel={'Seleccionar ' + day.day + ' ' + day.month}
             className={`h-[64px] w-[56px] items-center justify-center rounded-2xl border ${
               isSelected ? 'border-primary bg-primary' : 'border-[#E7E4F6] bg-surface'
             }`}>

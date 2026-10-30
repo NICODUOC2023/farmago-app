@@ -7,16 +7,21 @@ import {
   CheckCircle2,
   ChevronLeft,
   Image as ImageIcon,
+  MapPin,
   Pill,
   ScanLine,
   Sparkles,
 } from 'lucide-react-native';
 import { useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { colors } from '@/constants/colors';
 import { useTreatments } from '@/store/treatments';
-import { analyzePrescriptionImage, AnalyzedPrescription } from '@/services/gemini';
+import { useCoverage } from '@/store/coverage';
+import { SANTIAGO_CENTER } from '@/data/mock';
+import { analyzePrescriptionImage, AnalyzedPrescription, AnalyzedMedicine } from '@/services/gemini';
+import { searchMedications } from '@/services/medications';
+import { useSelectedMedication } from '@/store/selectedMedication';
 
 type Phase = 'pick' | 'preview' | 'loading' | 'done';
 
@@ -31,10 +36,13 @@ const PICK_OPTIONS: ImagePicker.ImagePickerOptions = {
 export default function ScanScreen() {
   const router = useRouter();
   const addFromScan = useTreatments((s) => s.addFromScan);
+  const setSelectedMedication = useSelectedMedication((s) => s.setMedication);
+  const setCoverageInput = useCoverage((s) => s.setCoverageInput);
 
   const [phase, setPhase] = useState<Phase>('pick');
   const [image, setImage] = useState<ImageAsset | null>(null);
   const [result, setResult] = useState<AnalyzedPrescription | null>(null);
+  const [editedMeds, setEditedMeds] = useState<AnalyzedMedicine[]>([]);
 
   const takePhoto = async () => {
     const permission = await ImagePicker.requestCameraPermissionsAsync();
@@ -58,7 +66,7 @@ export default function ScanScreen() {
       setResult(null);
       setPhase('preview');
     } catch {
-      Alert.alert('Error', 'No se pudo obtener la imagen. Intentá de nuevo.');
+      Alert.alert('Error', 'No se pudo obtener la imagen. Intenta de nuevo.');
     }
   };
 
@@ -67,23 +75,58 @@ export default function ScanScreen() {
     setPhase('loading');
     try {
       const parsed = await analyzePrescriptionImage({ base64: image.base64, mimeType: image.mimeType });
+
+      // Si es una caja/código de barras, buscar el medicamento y mostrar farmacias.
+      if (parsed.tipo === 'caja' || parsed.codigo_barras) {
+        const term = parsed.codigo_barras || parsed.medicamentos[0]?.nombre || '';
+        try {
+          const meds = await searchMedications(term);
+          if (meds.length > 0) {
+            setSelectedMedication(meds[0]);
+          }
+        } catch {
+          // ignore
+        }
+        router.replace('/');
+        return;
+      }
+
       setResult(parsed);
+      setEditedMeds(parsed.medicamentos);
       setPhase('done');
     } catch (error) {
       setPhase('preview');
-      Alert.alert('No pudimos analizar la receta', error instanceof Error ? error.message : 'Revisá tu conexión e intentá de nuevo.');
+      Alert.alert('No pudimos analizar la receta', error instanceof Error ? error.message : 'Revisa tu conexión e intentá de nuevo.');
     }
   };
 
   const saveToTreatments = () => {
     if (!result) return;
+    const meds = editedMeds.length ? editedMeds : result.medicamentos;
+    if (meds.some((m) => !m.nombre || !m.nombre.trim())) {
+      Alert.alert('Datos incompletos', 'Completa el nombre de todos los medicamentos antes de guardar.');
+      return;
+    }
     addFromScan({
-      medicamentos: result.medicamentos,
+      medicamentos: meds,
       notas: result.notas,
       medico: result.medico,
       institucion: result.institucion,
     });
-    router.replace('/recetas/tratamiento');
+    Alert.alert('Guardado', 'Tu tratamiento se guardó correctamente.', [
+      { text: 'OK', onPress: () => router.replace('/recetas/tratamiento') },
+    ]);
+  };
+
+  const searchCoverage = () => {
+    if (!result) return;
+    const meds = editedMeds.length ? editedMeds : result.medicamentos;
+    setCoverageInput({
+      medicationNames: meds.map((m) => m.nombre).filter(Boolean),
+      latitude: SANTIAGO_CENTER.latitude,
+      longitude: SANTIAGO_CENTER.longitude,
+    });
+    router.push('/cobertura');
   };
 
   return (
@@ -97,10 +140,14 @@ export default function ScanScreen() {
       {phase === 'done' && (
         <DoneStep
           result={result}
+          editedMeds={editedMeds}
+          onChangeMeds={setEditedMeds}
           onSave={saveToTreatments}
+          onCoverage={searchCoverage}
           onNewScan={() => {
             setImage(null);
             setResult(null);
+            setEditedMeds([]);
             setPhase('pick');
           }}
         />
@@ -138,13 +185,14 @@ function PickStep({ onCamera, onLibrary }: { onCamera: () => void; onLibrary: ()
         </Text>
       </View>
 
-      <Pressable onPress={onCamera} className="h-14 flex-row items-center justify-center rounded-full bg-primary active:opacity-90">
+      <Pressable onPress={onCamera} accessibilityRole="button" accessibilityLabel="Tomar foto" className="h-14 flex-row items-center justify-center rounded-full bg-primary active:opacity-90">
         <Camera size={20} color="#FFFFFF" strokeWidth={2.2} />
         <Text className="ml-2 font-plus-bold text-white">Tomar foto</Text>
       </Pressable>
 
       <Pressable
         onPress={onLibrary}
+        accessibilityRole="button" accessibilityLabel="Elegir de galería"
         className="h-14 flex-row items-center justify-center rounded-full border border-primary/25 bg-surface active:opacity-90">
         <ImageIcon size={20} color={colors.primary} strokeWidth={2.2} />
         <Text className="ml-2 font-plus-bold" style={{ color: colors.primary }}>
@@ -205,17 +253,30 @@ function PreviewStep({
 
 function DoneStep({
   result,
+  editedMeds,
+  onChangeMeds,
   onSave,
+  onCoverage,
   onNewScan,
 }: {
   result: AnalyzedPrescription | null;
+  editedMeds: AnalyzedMedicine[];
+  onChangeMeds: (meds: AnalyzedMedicine[]) => void;
   onSave: () => void;
+  onCoverage: () => void;
   onNewScan: () => void;
 }) {
   if (!result) return null;
 
+  const updateMed = (index: number, field: keyof AnalyzedMedicine, value: string) => {
+    const next = [...editedMeds];
+    next[index] = { ...next[index], [field]: value };
+    onChangeMeds(next);
+  };
+
   return (
-    <ScrollView className="flex-1" contentContainerClassName="gap-4 px-6 pb-10 pt-4">
+    <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <ScrollView className="flex-1" contentContainerClassName="gap-4 px-6 pb-10 pt-4" keyboardShouldPersistTaps="handled">
       <View className="flex-row items-center gap-2">
         <CheckCircle2 size={22} color={colors.accent} strokeWidth={2.4} />
         <Text className="text-base font-plus-bold text-text-primary">Receta analizada</Text>
@@ -238,17 +299,48 @@ function DoneStep({
       )}
 
       <View className="gap-2.5">
-        {result.medicamentos.map((med, index) => (
+        {editedMeds.map((med, index) => (
           <View key={`${med.nombre}-${index}`} className="rounded-3xl bg-surface px-4 py-3.5">
             <View className="flex-row items-center">
               <View className="h-10 w-10 items-center justify-center rounded-full" style={{ backgroundColor: colors.primarySoft }}>
                 <Pill size={18} color={colors.primary} strokeWidth={2.2} />
               </View>
-              <View className="ml-3 flex-1">
-                <Text className="text-[15px] font-plus-bold text-text-primary">{med.nombre}</Text>
-                <Text className="text-sm font-plus-medium text-text-secondary">
-                  {[med.dosis, med.frecuencia, med.duracion].filter(Boolean).join(' · ')}
-                </Text>
+              <View className="ml-3 flex-1 gap-2">
+                <TextInput
+                  value={med.nombre}
+                  onChangeText={(v) => updateMed(index, 'nombre', v)}
+                  placeholder="Nombre del medicamento"
+                  accessibilityLabel="Nombre del medicamento"
+                  className="rounded-2xl bg-background px-3 py-2 font-plus-medium text-[14px] text-text-primary"
+                />
+                <TextInput
+                  value={med.dosis}
+                  onChangeText={(v) => updateMed(index, 'dosis', v)}
+                  placeholder="Dosis"
+                  accessibilityLabel="Dosis"
+                  className="rounded-2xl bg-background px-3 py-2 font-plus-medium text-[13px] text-text-primary"
+                />
+                <TextInput
+                  value={med.frecuencia}
+                  onChangeText={(v) => updateMed(index, 'frecuencia', v)}
+                  placeholder="Frecuencia"
+                  accessibilityLabel="Frecuencia"
+                  className="rounded-2xl bg-background px-3 py-2 font-plus-medium text-[13px] text-text-primary"
+                />
+                <TextInput
+                  value={med.duracion}
+                  onChangeText={(v) => updateMed(index, 'duracion', v)}
+                  placeholder="Duración"
+                  accessibilityLabel="Duración"
+                  className="rounded-2xl bg-background px-3 py-2 font-plus-medium text-[13px] text-text-primary"
+                />
+                <TextInput
+                  value={med.cantidad}
+                  onChangeText={(v) => updateMed(index, 'cantidad', v)}
+                  placeholder="Cantidad prescrita"
+                  accessibilityLabel="Cantidad prescrita"
+                  className="rounded-2xl bg-background px-3 py-2 font-plus-medium text-[13px] text-text-primary"
+                />
               </View>
             </View>
           </View>
@@ -265,6 +357,13 @@ function DoneStep({
       <View className="h-2" />
 
       <LinearGradient colors={['#5B4FE8', '#8B7CF6']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.primaryButton}>
+        <Pressable onPress={onCoverage} style={styles.buttonInner} android_ripple={{ color: 'rgba(255,255,255,0.2)' }}>
+          <MapPin size={20} color="#FFFFFF" strokeWidth={2.2} />
+          <Text className="ml-2 font-plus-bold text-white">Buscar farmacias con esta receta</Text>
+        </Pressable>
+      </LinearGradient>
+
+      <LinearGradient colors={['#5B4FE8', '#8B7CF6']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.primaryButton}>
         <Pressable onPress={onSave} style={styles.buttonInner} android_ripple={{ color: 'rgba(255,255,255,0.2)' }}>
           <CheckCircle2 size={20} color="#FFFFFF" strokeWidth={2.2} />
           <Text className="ml-2 font-plus-bold text-white">Guardar en Tratamientos</Text>
@@ -279,7 +378,8 @@ function DoneStep({
           Escanear otra receta
         </Text>
       </Pressable>
-    </ScrollView>
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 

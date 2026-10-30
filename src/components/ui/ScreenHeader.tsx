@@ -1,5 +1,5 @@
 import { useRouter } from 'expo-router';
-import { Bell, ChevronLeft } from 'lucide-react-native';
+import { ChevronLeft } from 'lucide-react-native';
 import { Pressable, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -30,11 +30,7 @@ export function ScreenHeader({ title }: Props) {
         <ChevronLeft size={22} color="#1E1B3A" strokeWidth={2.5} />
       </Pressable>
       <Text className="max-w-[60%] text-center font-plus-bold text-lg text-text-primary">{title}</Text>
-      <Pressable
-        hitSlop={8}
-        className="h-10 w-10 items-center justify-center rounded-full bg-primary">
-        <Bell size={18} color="#FFFFFF" strokeWidth={2} />
-      </Pressable>
+      <View className="h-10 w-10" />
     </View>
   );
 }

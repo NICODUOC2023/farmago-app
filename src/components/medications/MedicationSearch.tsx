@@ -6,9 +6,10 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { ChevronRight, Pill, Search, UserX, X } from 'lucide-react-native';
+import { ChevronRight, MapPin, Pill, Search, UserX, X } from "lucide-react-native";
 
 import { colors } from '@/constants/colors';
+import { saveRecentSearch } from '@/services/recentSearches';
 import { useAuth } from '@/providers/AuthProvider';
 import {
   MedicationSearchError,
@@ -21,21 +22,42 @@ type SearchStatus = 'idle' | 'searching' | 'results' | 'no_results' | 'error';
 type Props = {
   selectedId?: string | null;
   onSelect?: (medication: MedicationResult) => void;
+  onFocus?: () => void;
+  onBlur?: () => void;
+  locationLabel?: string;
+  onLocationPress?: () => void;
+  initialQuery?: string;
 };
 
 const DEBOUNCE_MS = 300;
-const MAX_DESCRIPTION_LENGTH = 80;
 
-export function MedicationSearch({ selectedId, onSelect }: Props) {
+export function MedicationSearch({ selectedId, onSelect, onFocus, onBlur, locationLabel, onLocationPress, initialQuery }: Props) {
   const { session } = useAuth();
 
-  const [query, setQuery] = useState('');
+  const [query, setQuery] = useState(initialQuery ?? '');
   const [status, setStatus] = useState<SearchStatus>('idle');
   const [results, setResults] = useState<MedicationResult[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const requestIdRef = useRef(0);
+
+  useEffect(() => {
+    if (initialQuery && initialQuery.trim().length >= 2) {
+      setTimeout(() => setQuery(initialQuery), 0);
+      const requestId = ++requestIdRef.current;
+      (async () => {
+        try {
+          const medications = await searchMedications(initialQuery);
+          if (requestId !== requestIdRef.current) return;
+          setResults(medications);
+          setStatus(medications.length > 0 ? 'results' : 'no_results');
+        } catch {
+          // ignore
+        }
+      })();
+    }
+  }, [initialQuery]);
 
   const resetResults = useCallback(() => {
     setResults([]);
@@ -86,7 +108,7 @@ export function MedicationSearch({ selectedId, onSelect }: Props) {
         if (error instanceof MedicationSearchError) {
           if (error.code === 'not_authenticated') {
             setErrorMessage('Iniciá sesión para buscar medicamentos.');
-            setStatus('idle');
+            setStatus('error');
             return;
           }
           setErrorMessage(
@@ -109,7 +131,15 @@ export function MedicationSearch({ selectedId, onSelect }: Props) {
   }, [query]);
 
   const handleSelect = (medication: MedicationResult) => {
+    void saveRecentSearch(medication);
     onSelect?.(medication);
+    // Cerramos el dropdown y limpiamos la consulta tras seleccionar.
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current);
+      debounceRef.current = null;
+    }
+    setQuery('');
+    resetResults();
   };
 
   const handleClear = () => {
@@ -142,16 +172,29 @@ export function MedicationSearch({ selectedId, onSelect }: Props) {
           <TextInput
             value={query}
             onChangeText={handleQueryChange}
-            placeholder="Nombre o codigo de medicamento"
+            placeholder="¿Qué estás buscando?"
             placeholderTextColor={colors.textSecondary}
             autoCapitalize="none"
             autoCorrect={false}
             returnKeyType="search"
+            onFocus={onFocus}
+            onBlur={onBlur}
             className="ml-3 flex-1 font-plus-medium text-[14px] text-text-primary"
           />
           {query.length > 0 ? (
-            <Pressable onPress={handleClear} hitSlop={10} className="h-8 w-8 items-center justify-center rounded-full">
+            <Pressable onPress={handleClear} hitSlop={10} accessibilityRole="button" accessibilityLabel="Limpiar búsqueda" className="h-8 w-8 items-center justify-center rounded-full">
               <X size={16} color={colors.textSecondary} strokeWidth={2.4} />
+            </Pressable>
+          ) : null}
+          {locationLabel ? (
+            <Pressable
+              onPress={onLocationPress}
+              disabled={!onLocationPress}
+              accessibilityRole="button"
+              accessibilityLabel={locationLabel}
+              className="ml-2 flex-row items-center gap-1">
+              <MapPin size={12} color={colors.primary} strokeWidth={2.4} />
+              <Text className="text-[11px] font-plus-semibold text-primary">{locationLabel}</Text>
             </Pressable>
           ) : null}
         </View>
@@ -203,11 +246,6 @@ type ResultItemProps = {
 };
 
 function ResultItem({ medication, isSelected, isLast, onSelect }: ResultItemProps) {
-  const truncatedDescription =
-    medication.description && medication.description.length > MAX_DESCRIPTION_LENGTH
-      ? `${medication.description.slice(0, MAX_DESCRIPTION_LENGTH)}…`
-      : medication.description;
-
   return (
     <Pressable
       onPress={() => onSelect(medication)}
@@ -227,11 +265,7 @@ function ResultItem({ medication, isSelected, isLast, onSelect }: ResultItemProp
             {medication.presentation_unit}
           </Text>
         ) : null}
-        {truncatedDescription ? (
-          <Text numberOfLines={2} className="mt-0.5 font-plus-medium text-[11px] leading-4 text-text-secondary">
-            {truncatedDescription}
-          </Text>
-        ) : null}
+
         {medication.barcode ? (
           <Text numberOfLines={1} className="mt-1 font-plus-medium text-[10px] text-text-secondary">
             {`Codigo: ${medication.barcode}`}
