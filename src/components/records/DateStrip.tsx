@@ -1,5 +1,6 @@
 import { Pressable, ScrollView, Text } from 'react-native';
 
+import { colors } from '@/constants/colors';
 import { buildWeekDays } from '@/data/mock';
 
 type Props = {
@@ -28,9 +29,8 @@ export function DateStrip({ selected, onSelect }: Props) {
               isSelected ? 'border-primary bg-primary' : 'border-[#E7E4F6] bg-surface'
             }`}>
             <Text
-              className={`text-[10px] font-plus-semibold leading-none ${
-                isSelected ? 'text-white/85' : 'text-text-secondary'
-              }`}>
+              className="text-[10px] font-plus-semibold leading-none"
+              style={{ color: isSelected ? 'rgba(255, 255, 255, 0.85)' : colors.textSecondary }}>
               {day.month}
             </Text>
             <Text
@@ -40,9 +40,8 @@ export function DateStrip({ selected, onSelect }: Props) {
               {day.day}
             </Text>
             <Text
-              className={`text-[10px] font-plus-medium leading-none ${
-                isSelected ? 'text-white/85' : 'text-text-secondary'
-              }`}>
+              className="text-[10px] font-plus-medium leading-none"
+              style={{ color: isSelected ? 'rgba(255, 255, 255, 0.85)' : colors.textSecondary }}>
               {day.weekday}
             </Text>
           </Pressable>

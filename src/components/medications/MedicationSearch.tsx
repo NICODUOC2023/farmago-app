@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
+  StyleSheet,
   Text,
   TextInput,
   View,
@@ -249,8 +250,12 @@ function ResultItem({ medication, isSelected, isLast, onSelect }: ResultItemProp
   return (
     <Pressable
       onPress={() => onSelect(medication)}
-      className={`flex-row items-start px-4 py-3 ${isLast ? '' : 'border-b border-black/5'}`}
-      style={isSelected ? { backgroundColor: colors.primarySoft } : undefined}>
+      className="flex-row items-start px-4 py-3"
+      style={[
+        isSelected ? { backgroundColor: colors.primarySoft } : undefined,
+        !isLast && styles.resultSeparator,
+      ]}
+    >
       <View
         className="mt-0.5 h-9 w-9 items-center justify-center rounded-full"
         style={{ backgroundColor: isSelected ? colors.accentSoft : '#F4F3FB' }}>
@@ -280,3 +285,10 @@ function ResultItem({ medication, isSelected, isLast, onSelect }: ResultItemProp
     </Pressable>
   );
 }
+
+const styles = StyleSheet.create({
+  resultSeparator: {
+    borderBottomColor: 'rgba(0, 0, 0, 0.05)',
+    borderBottomWidth: 1,
+  },
+});
