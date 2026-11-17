@@ -1842,6 +1842,7 @@ export type Database = {
         | "privacy_policy"
         | "terms_of_service"
         | "marketing"
+        | "geolocation_processing"
       intake_status: "pending" | "taken" | "skipped" | "missed"
       prescription_item_match_status:
         | "pending"
@@ -2016,6 +2017,7 @@ export const Constants = {
         "privacy_policy",
         "terms_of_service",
         "marketing",
+        "geolocation_processing",
       ],
       intake_status: ["pending", "taken", "skipped", "missed"],
       prescription_item_match_status: [

@@ -43,10 +43,16 @@ serve(async (req: Request) => {
   const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
   const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
   if (supabaseUrl && supabaseAnonKey) {
-    const supabase = createClient(supabaseUrl, supabaseAnonKey);
+    const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+      global: { headers: { Authorization: `Bearer ${token}` } },
+    });
     const { data, error } = await supabase.auth.getUser(token);
     if (error || !data?.user) {
       return jsonResponse({ error: "unauthorized" }, 401);
+    }
+    const { data: consent, error: cErr } = await supabase.rpc('has_active_consent', { p_type: 'prescription_processing' });
+    if (cErr || consent !== true) {
+      return jsonResponse({ error: "consent_required" }, 403);
     }
   }
 

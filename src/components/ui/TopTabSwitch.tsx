@@ -23,7 +23,7 @@ export function TopTabSwitch() {
         return (
           <Pressable
             key={tab.id}
-            onPress={() => router.replace(tab.route as Href)}
+            onPress={() => router.push(tab.route as Href)}
             className={`flex-1 items-center rounded-full px-3 py-2.5 ${isActive ? 'bg-primary' : ''}`}>
             <Text
               className="text-[13px] font-plus-bold"

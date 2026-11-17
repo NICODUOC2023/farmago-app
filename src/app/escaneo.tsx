@@ -2,6 +2,7 @@ import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   Camera,
   CheckCircle2,
@@ -17,6 +18,8 @@ import { ActivityIndicator, Alert, KeyboardAvoidingView, Platform, Pressable, Sc
 
 import { colors } from '@/constants/colors';
 import { useTreatments } from '@/store/treatments';
+import { ConsentSheet } from '@/components/privacy/ConsentSheet';
+import { grantConsent, hasConsent } from '@/services/consents';
 import { useCoverage } from '@/store/coverage';
 import { SANTIAGO_CENTER } from '@/data/mock';
 import { analyzePrescriptionImage, AnalyzedPrescription, AnalyzedMedicine } from '@/services/gemini';
@@ -43,8 +46,24 @@ export default function ScanScreen() {
   const [image, setImage] = useState<ImageAsset | null>(null);
   const [result, setResult] = useState<AnalyzedPrescription | null>(null);
   const [editedMeds, setEditedMeds] = useState<AnalyzedMedicine[]>([]);
+  const [showPrescriptionConsent, setShowPrescriptionConsent] = useState(false);
+  const [showHealthConsent, setShowHealthConsent] = useState(false);
+  const [pendingPicker, setPendingPicker] = useState<(() => void) | null>(null);
 
   const takePhoto = async () => {
+    const consent = await hasConsent('prescription_processing');
+    if (!consent) {
+      setPendingPicker(() => async () => {
+        const permission = await ImagePicker.requestCameraPermissionsAsync();
+        if (!permission.granted) {
+          Alert.alert('Permiso requerido', 'Necesitamos la cámara para escanear tu receta.');
+          return;
+        }
+        launchPicker(ImagePicker.launchCameraAsync(PICK_OPTIONS));
+      });
+      setShowPrescriptionConsent(true);
+      return;
+    }
     const permission = await ImagePicker.requestCameraPermissionsAsync();
     if (!permission.granted) {
       Alert.alert('Permiso requerido', 'Necesitamos la cámara para escanear tu receta.');
@@ -53,7 +72,15 @@ export default function ScanScreen() {
     launchPicker(ImagePicker.launchCameraAsync(PICK_OPTIONS));
   };
 
-  const pickFromLibrary = () => {
+  const pickFromLibrary = async () => {
+    const consent = await hasConsent('prescription_processing');
+    if (!consent) {
+      setPendingPicker(() => async () => {
+        launchPicker(ImagePicker.launchImageLibraryAsync(PICK_OPTIONS));
+      });
+      setShowPrescriptionConsent(true);
+      return;
+    }
     launchPicker(ImagePicker.launchImageLibraryAsync(PICK_OPTIONS));
   };
 
@@ -100,11 +127,16 @@ export default function ScanScreen() {
     }
   };
 
-  const saveToTreatments = () => {
+  const saveToTreatments = async () => {
     if (!result) return;
     const meds = editedMeds.length ? editedMeds : result.medicamentos;
     if (meds.some((m) => !m.nombre || !m.nombre.trim())) {
       Alert.alert('Datos incompletos', 'Completa el nombre de todos los medicamentos antes de guardar.');
+      return;
+    }
+    const consent = await hasConsent('health_data_processing');
+    if (!consent) {
+      setShowHealthConsent(true);
       return;
     }
     addFromScan({
@@ -118,6 +150,26 @@ export default function ScanScreen() {
     ]);
   };
 
+  const acceptHealthConsent = async () => {
+    try {
+      await grantConsent('health_data_processing');
+      setShowHealthConsent(false);
+      if (!result) return;
+      const meds = editedMeds.length ? editedMeds : result.medicamentos;
+      addFromScan({
+        medicamentos: meds,
+        notas: result.notas,
+        medico: result.medico,
+        institucion: result.institucion,
+      });
+      Alert.alert('Guardado', 'Tu tratamiento se guardó correctamente.', [
+        { text: 'OK', onPress: () => router.replace('/recetas/tratamiento') },
+      ]);
+    } catch {
+      setShowHealthConsent(false);
+    }
+  };
+
   const searchCoverage = () => {
     if (!result) return;
     const meds = editedMeds.length ? editedMeds : result.medicamentos;
@@ -129,6 +181,18 @@ export default function ScanScreen() {
     router.push('/cobertura');
   };
 
+  const acceptPrescriptionConsent = async () => {
+    try {
+      await grantConsent('prescription_processing');
+      setShowPrescriptionConsent(false);
+      const action = pendingPicker;
+      setPendingPicker(null);
+      if (action) await action();
+    } catch {
+      setShowPrescriptionConsent(false);
+    }
+  };
+
   return (
     <View className="flex-1 bg-background">
       <Header onClose={() => router.back()} />
@@ -137,6 +201,31 @@ export default function ScanScreen() {
       {(phase === 'preview' || phase === 'loading') && (
         <PreviewStep image={image} loading={phase === 'loading'} onAnalyze={analyze} onRetake={takePhoto} />
       )}
+      {showPrescriptionConsent ? (
+        <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 50 }}>
+          <ConsentSheet
+            title="Antes de procesar tu receta"
+            body="Una receta puede contener información de salud. farmaGO procesará temporalmente su contenido para identificar medicamentos y consultar su disponibilidad. La imagen no se almacenará permanentemente en farmaGO."
+            extraInfo="La imagen será procesada mediante una Edge Function que utiliza un proveedor de inteligencia artificial. Los datos podrían procesarse fuera de Chile. El tratamiento se limita a extraer medicamentos y datos necesarios para la búsqueda. No se entregará diagnóstico ni recomendación médica."
+            checkboxLabel="Acepto el procesamiento de los datos de salud de esta receta para identificar medicamentos y consultar su disponibilidad."
+            onAccept={acceptPrescriptionConsent}
+            onCancel={() => { setShowPrescriptionConsent(false); setPendingPicker(null); }}
+          />
+        </View>
+      ) : null}
+
+      {showHealthConsent ? (
+        <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 50 }}>
+          <ConsentSheet
+            title="Autorización para guardar tu tratamiento"
+            body="Para guardar este tratamiento, farmaGO almacenará los medicamentos, dosis, frecuencia, duración, horarios y tomas asociadas a tu cuenta. Estos datos se utilizarán únicamente para ayudarte a gestionar tu tratamiento dentro de la aplicación."
+            checkboxLabel="Acepto que farmaGO trate y almacene estos datos de salud para gestionar mi tratamiento."
+            onAccept={acceptHealthConsent}
+            onCancel={() => setShowHealthConsent(false)}
+          />
+        </View>
+      ) : null}
+
       {phase === 'done' && (
         <DoneStep
           result={result}
@@ -157,8 +246,9 @@ export default function ScanScreen() {
 }
 
 function Header({ onClose }: { onClose: () => void }) {
+  const insets = useSafeAreaInsets();
   return (
-    <View className="flex-row items-center px-5 pb-2 pt-4">
+    <View className="flex-row items-center px-5 pb-2" style={{ paddingTop: insets.top + 8 }}>
       <Pressable onPress={onClose} className="h-10 w-10 items-center justify-center rounded-full bg-surface">
         <ChevronLeft size={22} color={colors.textPrimary} strokeWidth={2.4} />
       </Pressable>

@@ -1,5 +1,8 @@
-import { getSupabase, isSupabaseConfigured } from '@/lib/supabase';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { MedicationResult } from '@/services/medications';
+
+const STORAGE_KEY = 'farmago_recent_searches';
+const MAX_ITEMS = 15;
 
 export type RecentSearch = {
   id: string;
@@ -10,35 +13,37 @@ export type RecentSearch = {
 };
 
 export async function saveRecentSearch(med: MedicationResult): Promise<void> {
-  if (!isSupabaseConfigured) return;
-  const supabase = getSupabase();
-  const { data: { session } } = await supabase.auth.getSession();
-  if (!session) return;
-  await supabase.from('recent_searches').insert({
-    user_id: session.user.id,
-    query: med.name,
-    search_type: 'medication',
-    medication_id: med.id,
-  });
+  try {
+    const raw = await AsyncStorage.getItem(STORAGE_KEY);
+    const list: RecentSearch[] = raw ? JSON.parse(raw) : [];
+    const next: RecentSearch = {
+      id: `${med.id}-${Date.now()}`,
+      query: med.name,
+      medication_id: med.id,
+      medication_name: med.name,
+      created_at: new Date().toISOString(),
+    };
+    const filtered = list.filter((r) => r.medication_id !== med.id);
+    const updated = [next, ...filtered].slice(0, MAX_ITEMS);
+    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+  } catch {
+    // Ignorar errores de almacenamiento local.
+  }
 }
 
 export async function loadRecentSearches(): Promise<RecentSearch[]> {
-  if (!isSupabaseConfigured) return [];
-  const supabase = getSupabase();
-  const { data: { session } } = await supabase.auth.getSession();
-  if (!session) return [];
-  const { data, error } = await supabase
-    .from('recent_searches')
-    .select('id, query, medication_id, created_at, medications(name)')
-    .eq('user_id', session.user.id)
-    .order('created_at', { ascending: false })
-    .limit(30);
-  if (error) return [];
-  return (data ?? []).map((r: Record<string, unknown>) => ({
-    id: r.id as string,
-    query: r.query as string,
-    medication_id: (r.medication_id as string) ?? null,
-    medication_name: ((r.medications as Record<string, unknown> | null)?.name as string) ?? null,
-    created_at: r.created_at as string,
-  }));
+  try {
+    const raw = await AsyncStorage.getItem(STORAGE_KEY);
+    return raw ? (JSON.parse(raw) as RecentSearch[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+export async function clearRecentSearches(): Promise<void> {
+  try {
+    await AsyncStorage.removeItem(STORAGE_KEY);
+  } catch {
+    // ignore
+  }
 }

@@ -84,13 +84,14 @@ export function PharmacyMap({ userLocation, pharmacies, recommendedId, selectedI
         showsMyLocationButton={false}
         toolbarEnabled={false}
         initialRegion={regionFor(userLocation)}>
-        {pharmacies.map((pharmacy) => (
+        {pharmacies
+          .filter((pharmacy) => Number.isFinite(pharmacy.latitude) && Number.isFinite(pharmacy.longitude))
+          .map((pharmacy) => (
           <Marker
             key={pharmacy.id}
             coordinate={{ latitude: pharmacy.latitude, longitude: pharmacy.longitude }}
             title={pharmacy.name}
             description={pharmacy.address ?? undefined}
-            accessibilityLabel={`${pharmacy.name}. ${pharmacy.address ?? ''}. ${isStockFresh(pharmacy.lastSyncedAt) ? 'Con stock' : 'Stock desactualizado'}`}
             onPress={() => onSelectPharmacy?.(pharmacy.id)}>
             <MapMarkerPin active={pharmacy.id === recommendedId} stale={!isStockFresh(pharmacy.lastSyncedAt)} />
           </Marker>

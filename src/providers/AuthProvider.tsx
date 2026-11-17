@@ -9,6 +9,7 @@ import {
 } from 'react';
 
 import { isSupabaseConfigured } from '@/constants/env';
+import { clearRecentSearches } from '@/services/recentSearches';
 import { getSupabase } from '@/lib/supabase';
 import {
   resetPassword,
@@ -25,7 +26,7 @@ type AuthContextValue = {
   isConfigured: boolean;
   signIn: (credentials: { email: string; password: string }) => Promise<AuthResult>;
   signUp: typeof signUp;
-  signOut: typeof signOut;
+  signOut: () => Promise<void>;
   resetPassword: typeof resetPassword;
 };
 
@@ -77,7 +78,10 @@ export function AuthProvider({ children }: PropsWithChildren) {
       isConfigured: isSupabaseConfigured,
       signIn,
       signUp,
-      signOut,
+      signOut: async () => {
+    await signOut();
+    await clearRecentSearches();
+  },
       resetPassword,
     }),
     [session, isLoading],

@@ -1,6 +1,7 @@
 import Constants from 'expo-constants';
 import {
   ActivityIndicator,
+  Alert,
   Linking,
   Platform,
   Pressable,
@@ -19,9 +20,9 @@ import { colors } from '@/constants/colors';
 import { SANTIAGO_CENTER } from '@/data/mock';
 import { SANTIAGO_COMMUNES, type Commune } from '@/data/communes';
 import { useAuth } from '@/providers/AuthProvider';
+import { grantConsent, hasConsent } from '@/services/consents';
 import { useSelectedMedication } from '@/store/selectedMedication';
 import { useSearchQuery } from '@/store/searchQuery';
-import { Link } from 'expo-router';
 import { getCurrentCoordinates, LocationError, type Coordinates } from '@/services/location';
 import {
   findNearbyPharmacies,
@@ -105,6 +106,26 @@ export function MapScreen({ onNavigate }: { onNavigate?: (href: string) => void 
               setLocationSource('gps');
             }
           } else {
+            const consent = await hasConsent('geolocation_processing');
+            if (!consent) {
+              const accepted = await new Promise<boolean>((resolve) => {
+                Alert.alert(
+                  'Usar tu ubicación',
+                  'Usaremos tu ubicación actual para calcular distancias y ordenar farmacias cercanas. La ubicación se utilizará únicamente durante esta búsqueda y no se almacenará permanentemente.',
+                  [
+                    { text: 'Usar una comuna', style: 'cancel', onPress: () => resolve(false) },
+                    { text: 'Permitir ubicación', onPress: () => resolve(true) },
+                  ],
+                );
+              });
+              if (!accepted) {
+                setLocationSource('commune');
+                if (!communeName) setShowCommunePicker(true);
+                setStatus('idle');
+                return;
+              }
+              await grantConsent('geolocation_processing');
+            }
             coordinates = await getCurrentCoordinates();
             setLocationSource('gps');
           }
@@ -173,21 +194,6 @@ export function MapScreen({ onNavigate }: { onNavigate?: (href: string) => void 
     void runSearch(selectedMedication?.id ?? null, coords);
   }, [runSearch, selectedMedication]);
 
-  if (!session) {
-    return (
-      <View className="flex-1 items-center justify-center bg-background px-6">
-        <Text className="mb-4 text-center text-[16px] font-plus-semibold text-text-primary">
-          Iniciá sesión para usar farmaGO
-        </Text>
-        <Link href="/login" asChild>
-          <Pressable className="rounded-full bg-primary px-6 py-3">
-            <Text className="font-plus-semibold text-[14px] text-white">Ir a iniciar sesión</Text>
-          </Pressable>
-        </Link>
-      </View>
-    );
-  }
-
   return (
     <View className="flex-1 bg-background" style={{ flex: 1 }}>
       <PharmacyMap
@@ -232,9 +238,20 @@ export function MapScreen({ onNavigate }: { onNavigate?: (href: string) => void 
             <Text numberOfLines={1} className="ml-2 flex-1 font-plus-semibold text-[12px] text-text-primary">
               {selectedMedication.name}
             </Text>
-            <Text className="font-plus-medium text-[10px] text-text-secondary">
-              Medicamento seleccionado
-            </Text>
+            <Pressable
+              onPress={() => {
+                setSelectedMedication(null);
+                setStatus('idle');
+                setPharmacies([]);
+                setSelectedId(null);
+                setRecommendedId(null);
+              }}
+              accessibilityRole="button"
+              accessibilityLabel="Quitar medicamento"
+              hitSlop={8}
+              className="h-6 w-6 items-center justify-center rounded-full bg-primarySoft">
+              <X size={12} color={colors.primary} strokeWidth={2.4} />
+            </Pressable>
           </View>
         ) : null}
 
