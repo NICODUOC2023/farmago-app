@@ -3,14 +3,19 @@ import { useRouter } from 'expo-router';
 import { ScanLine } from 'lucide-react-native';
 import { Pressable, StyleSheet } from 'react-native';
 
+import { usePaywall } from '@/store/paywall';
+
 export function ScanFab() {
   const router = useRouter();
+  const openPaywall = usePaywall((state) => state.openPaywall);
+
+  const openScanner = () => router.push('/escaneo');
 
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel="Escanear receta"
-      onPress={() => router.push('/escaneo')}
+      onPress={() => openPaywall('scanner', { onUnlock: openScanner })}
       style={({ pressed }) => (pressed ? styles.pressed : undefined)}
       hitSlop={6}>
       <LinearGradient

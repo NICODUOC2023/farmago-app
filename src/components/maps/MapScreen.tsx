@@ -22,6 +22,7 @@ import { SANTIAGO_COMMUNES, type Commune } from '@/data/communes';
 import { useAuth } from '@/providers/AuthProvider';
 import { grantConsent, hasConsent } from '@/services/consents';
 import { useSelectedMedication } from '@/store/selectedMedication';
+import { useCoverage } from '@/store/coverage';
 import { useSearchQuery } from '@/store/searchQuery';
 import { getCurrentCoordinates, LocationError, type Coordinates } from '@/services/location';
 import {
@@ -42,11 +43,13 @@ export function MapScreen({ onNavigate }: { onNavigate?: (href: string) => void 
   const insets = useSafeAreaInsets();
   const { session } = useAuth();
   const selectedFromScan = useSelectedMedication((s) => s.medication);
+  const setStoredMedication = useSelectedMedication((s) => s.setMedication);
+  const coverageMapTarget = useCoverage((s) => s.mapTarget);
+  const consumeCoverageMapTarget = useCoverage((s) => s.consumeMapTarget);
 
   const [userLocation, setUserLocation] = useState<Coordinates | null>(null);
   const [pharmacies, setPharmacies] = useState<NearbyPharmacy[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [recommendedId, setRecommendedId] = useState<string | null>(null);
   const processedScanRef = useRef<string | null>(null);
   const [status, setStatus] = useState<SearchStatus>('idle');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -149,7 +152,6 @@ export function MapScreen({ onNavigate }: { onNavigate?: (href: string) => void 
 
         setPharmacies(results);
         setSelectedId(results[0]?.id ?? null);
-        setRecommendedId(results[0]?.id ?? null);
         setStatus('success');
       } catch (error) {
         setStatus('error');
@@ -179,6 +181,49 @@ export function MapScreen({ onNavigate }: { onNavigate?: (href: string) => void 
     }
   }, [selectedFromScan]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  useEffect(() => {
+    if (!coverageMapTarget) return;
+
+    const { pharmacy, medication } = coverageMapTarget;
+    const mapPharmacy: NearbyPharmacy = {
+      id: pharmacy.pharmacy_id,
+      name: pharmacy.pharmacy_name,
+      chain: null,
+      address: pharmacy.address,
+      latitude: pharmacy.latitude,
+      longitude: pharmacy.longitude,
+      distanceM: pharmacy.distance_m,
+      isAvailable: true,
+      price: medication?.price ?? pharmacy.total_price,
+      quantity: medication?.quantity ?? null,
+      lastSyncedAt: medication?.last_synced_at ?? pharmacy.last_synced_at,
+      openingTime: null,
+      closingTime: null,
+      phone: null,
+    };
+
+    setPharmacies([mapPharmacy]);
+    setSelectedId(mapPharmacy.id);
+    setUserLocation(SANTIAGO_CENTER);
+    setLocationSource('commune');
+    setCommuneName('Santiago');
+    setSelectedMedication(
+      medication
+        ? {
+            id: medication.medication_id,
+            name: medication.name,
+            barcode: null,
+            description: null,
+            presentation_unit: null,
+          }
+        : null,
+    );
+    setStoredMedication(null);
+    setStatus('success');
+    setErrorMessage(null);
+    consumeCoverageMapTarget();
+  }, [coverageMapTarget, consumeCoverageMapTarget, setStoredMedication]);
+
 
 
   const handleSelectMedication = useCallback((medication: MedicationResult) => {
@@ -199,7 +244,6 @@ export function MapScreen({ onNavigate }: { onNavigate?: (href: string) => void 
       <PharmacyMap
         userLocation={userLocation ?? SANTIAGO_CENTER}
         pharmacies={pharmacies}
-        recommendedId={recommendedId}
         selectedId={selectedId}
         onSelectPharmacy={setSelectedId}
       />
@@ -244,7 +288,6 @@ export function MapScreen({ onNavigate }: { onNavigate?: (href: string) => void 
                 setStatus('idle');
                 setPharmacies([]);
                 setSelectedId(null);
-                setRecommendedId(null);
               }}
               accessibilityRole="button"
               accessibilityLabel="Quitar medicamento"
@@ -348,7 +391,6 @@ export function MapScreen({ onNavigate }: { onNavigate?: (href: string) => void 
                   setStatus('idle');
                   setPharmacies([]);
                   setSelectedId(null);
-                  setRecommendedId(null);
                 }}
                 accessibilityRole="button"
                 accessibilityLabel="Cerrar"

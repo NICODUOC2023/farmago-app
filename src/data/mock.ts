@@ -59,7 +59,8 @@ export const pharmacies: Pharmacy[] = [
 export const activePharmacyId = 'pharmaflo';
 
 const today = new Date();
-const iso = (d: Date) => d.toISOString().slice(0, 10);
+const iso = (d: Date) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
 export const historialRecords: HistorialRecord[] = [
   { id: 'h1', pharmacy: 'Pharmaflo', medicine: 'Enalapril 5mg', time: '08:30', status: 'comprada', date: iso(today) },
@@ -195,7 +196,7 @@ export type DayItem = {
 export function buildWeekDays(from: Date = new Date()): DayItem[] {
   return Array.from({ length: 7 }, (_, i) => {
     const d = new Date(from);
-    d.setDate(from.getDate() + i);
+    d.setDate(from.getDate() - i);
     return {
       date: iso(d),
       day: d.getDate(),

@@ -8,10 +8,19 @@ import type { PharmacyCoverage } from '@/services/pharmacies';
 export default function CoberturaScreen() {
   const router = useRouter();
   const { medicationNames } = useCoverage();
+  const setMapTarget = useCoverage((state) => state.setMapTarget);
   const result = mockCoverage(medicationNames);
 
   const full = result.full;
   const partial = result.partial;
+
+  const showPharmacyOnMap = (pharmacy: PharmacyCoverage) => {
+    setMapTarget({
+      pharmacy,
+      medication: pharmacy.matched_medications[0] ?? null,
+    });
+    router.replace('/');
+  };
 
   return (
     <View className="flex-1 bg-background">
@@ -44,7 +53,7 @@ export default function CoberturaScreen() {
                 </View>
               ))}
             </View>
-            <Pressable onPress={() => router.replace("/")} accessibilityRole="button" accessibilityLabel="Ver en el mapa" className="mt-4 items-center justify-center rounded-full bg-primary py-3">
+            <Pressable onPress={() => showPharmacyOnMap(full)} accessibilityRole="button" accessibilityLabel="Ver en el mapa" className="mt-4 items-center justify-center rounded-full bg-primary py-3">
               <Text className="font-plus-semibold text-[14px] text-white">Ver en el mapa</Text>
             </Pressable>
           </View>
@@ -74,7 +83,7 @@ export default function CoberturaScreen() {
                         Stock: {p.matched_medications[0]?.quantity ?? '-'} · Actualización:{' '}
                         {p.last_synced_at ? new Date(p.last_synced_at).toLocaleString('es-CL') : '-'}
                       </Text>
-                      <Pressable onPress={() => router.replace("/")} accessibilityRole="button" accessibilityLabel="Ver en el mapa" className="mt-2 self-start rounded-full bg-primary px-3 py-1.5">
+                      <Pressable onPress={() => showPharmacyOnMap(p)} accessibilityRole="button" accessibilityLabel="Ver en el mapa" className="mt-2 self-start rounded-full bg-primary px-3 py-1.5">
                         <Text className="text-[11px] font-plus-semibold text-white">Ver en el mapa</Text>
                       </Pressable>
                     </View>

@@ -12,7 +12,6 @@ type Props = {
   /** Ubicación actual del usuario (solo en memoria, nunca persistida). */
   userLocation: Coordinates;
   pharmacies: NearbyPharmacy[];
-  recommendedId?: string | null;
   selectedId?: string | null;
   onSelectPharmacy?: (id: string) => void;
 };
@@ -24,7 +23,7 @@ function regionFor(coordinates: Coordinates): Region {
   return { ...coordinates, ...INITIAL_DELTA };
 }
 
-export function PharmacyMap({ userLocation, pharmacies, recommendedId, selectedId, onSelectPharmacy }: Props) {
+export function PharmacyMap({ userLocation, pharmacies, selectedId, onSelectPharmacy }: Props) {
   const mapRef = useRef<MapView>(null);
   const pharmacyIds = pharmacies.map((pharmacy) => pharmacy.id).join(',');
 
@@ -93,7 +92,7 @@ export function PharmacyMap({ userLocation, pharmacies, recommendedId, selectedI
             title={pharmacy.name}
             description={pharmacy.address ?? undefined}
             onPress={() => onSelectPharmacy?.(pharmacy.id)}>
-            <MapMarkerPin active={pharmacy.id === recommendedId} stale={!isStockFresh(pharmacy.lastSyncedAt)} />
+            <MapMarkerPin active={pharmacy.id === selectedId} stale={!isStockFresh(pharmacy.lastSyncedAt)} />
           </Marker>
         ))}
       </MapView>

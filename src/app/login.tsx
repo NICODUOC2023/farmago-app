@@ -118,7 +118,7 @@ export default function LoginScreen() {
           <View style={{ marginBottom: 8, alignItems: 'center' }}>
             <Image
               source={require('../../assets/images/logo.png')}
-              style={{ width: 340, height: 120, resizeMode: 'contain' }}
+              style={{ width: '100%', height: 120, resizeMode: 'contain' }}
               accessibilityLabel="farmaGO"
             />
          

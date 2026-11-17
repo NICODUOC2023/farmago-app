@@ -13,7 +13,7 @@ import {
   ScanLine,
   Sparkles,
 } from 'lucide-react-native';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { colors } from '@/constants/colors';
@@ -25,6 +25,7 @@ import { SANTIAGO_CENTER } from '@/data/mock';
 import { analyzePrescriptionImage, AnalyzedPrescription, AnalyzedMedicine } from '@/services/gemini';
 import { searchMedications } from '@/services/medications';
 import { useSelectedMedication } from '@/store/selectedMedication';
+import { usePaywall } from '@/store/paywall';
 
 type Phase = 'pick' | 'preview' | 'loading' | 'done';
 
@@ -39,6 +40,9 @@ const PICK_OPTIONS: ImagePicker.ImagePickerOptions = {
 export default function ScanScreen() {
   const router = useRouter();
   const addFromScan = useTreatments((s) => s.addFromScan);
+  const isPro = usePaywall((s) => s.isPro);
+  const openPaywall = usePaywall((s) => s.openPaywall);
+  const paywallRequested = useRef(false);
   const setSelectedMedication = useSelectedMedication((s) => s.setMedication);
   const setCoverageInput = useCoverage((s) => s.setCoverageInput);
 
@@ -49,6 +53,17 @@ export default function ScanScreen() {
   const [showPrescriptionConsent, setShowPrescriptionConsent] = useState(false);
   const [showHealthConsent, setShowHealthConsent] = useState(false);
   const [pendingPicker, setPendingPicker] = useState<(() => void) | null>(null);
+
+  useEffect(() => {
+    if (isPro || paywallRequested.current) return;
+    paywallRequested.current = true;
+    openPaywall('scanner', {
+      onDismiss: () => {
+        if (router.canGoBack()) router.back();
+        else router.replace('/');
+      },
+    });
+  }, [isPro, openPaywall, router]);
 
   const takePhoto = async () => {
     const consent = await hasConsent('prescription_processing');
@@ -130,6 +145,10 @@ export default function ScanScreen() {
   const saveToTreatments = async () => {
     if (!result) return;
     const meds = editedMeds.length ? editedMeds : result.medicamentos;
+    if (meds.length === 0) {
+      Alert.alert('No se detectaron medicamentos', 'Prueba con una foto más clara o escanea otra receta.');
+      return;
+    }
     if (meds.some((m) => !m.nombre || !m.nombre.trim())) {
       Alert.alert('Datos incompletos', 'Completa el nombre de todos los medicamentos antes de guardar.');
       return;
@@ -148,6 +167,10 @@ export default function ScanScreen() {
     Alert.alert('Guardado', 'Tu tratamiento se guardó correctamente.', [
       { text: 'OK', onPress: () => router.replace('/recetas/tratamiento') },
     ]);
+  };
+
+  const requestSaveToTreatments = () => {
+    openPaywall('treatment', { onUnlock: () => { void saveToTreatments(); } });
   };
 
   const acceptHealthConsent = async () => {
@@ -173,6 +196,10 @@ export default function ScanScreen() {
   const searchCoverage = () => {
     if (!result) return;
     const meds = editedMeds.length ? editedMeds : result.medicamentos;
+    if (!meds.some((med) => med.nombre.trim())) {
+      Alert.alert('No se detectaron medicamentos', 'Prueba con una foto más clara o escanea otra receta.');
+      return;
+    }
     setCoverageInput({
       medicationNames: meds.map((m) => m.nombre).filter(Boolean),
       latitude: SANTIAGO_CENTER.latitude,
@@ -192,6 +219,10 @@ export default function ScanScreen() {
       setShowPrescriptionConsent(false);
     }
   };
+
+  if (!isPro) {
+    return <View style={{ flex: 1, backgroundColor: colors.background }} />;
+  }
 
   return (
     <View className="flex-1 bg-background">
@@ -231,7 +262,7 @@ export default function ScanScreen() {
           result={result}
           editedMeds={editedMeds}
           onChangeMeds={setEditedMeds}
-          onSave={saveToTreatments}
+          onSave={requestSaveToTreatments}
           onCoverage={searchCoverage}
           onNewScan={() => {
             setImage(null);
@@ -358,6 +389,8 @@ function DoneStep({
 }) {
   if (!result) return null;
 
+  const hasRecognizedMedication = editedMeds.some((med) => med.nombre.trim());
+
   const updateMed = (index: number, field: keyof AnalyzedMedicine, value: string) => {
     const next = [...editedMeds];
     next[index] = { ...next[index], [field]: value };
@@ -437,6 +470,15 @@ function DoneStep({
         ))}
       </View>
 
+      {!hasRecognizedMedication ? (
+        <View className="rounded-3xl px-4 py-3.5" style={{ backgroundColor: colors.accentSoft }}>
+          <Text className="font-plus-semibold text-text-primary">No se detectaron medicamentos</Text>
+          <Text className="mt-1 text-sm font-plus-medium text-text-secondary">
+            Revisa que la foto sea clara o escanea otra receta para continuar.
+          </Text>
+        </View>
+      ) : null}
+
       {result.notas && (
         <View className="rounded-3xl bg-surface px-4 py-3.5">
           <Text className="text-sm font-plus-bold text-text-primary">Notas del médico</Text>
@@ -446,19 +488,23 @@ function DoneStep({
 
       <View className="h-2" />
 
-      <LinearGradient colors={['#5B4FE8', '#8B7CF6']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.primaryButton}>
-        <Pressable onPress={onCoverage} style={styles.buttonInner} android_ripple={{ color: 'rgba(255,255,255,0.2)' }}>
-          <MapPin size={20} color="#FFFFFF" strokeWidth={2.2} />
-          <Text className="ml-2 font-plus-bold text-white">Buscar farmacias con esta receta</Text>
-        </Pressable>
-      </LinearGradient>
+      {hasRecognizedMedication ? (
+        <>
+          <LinearGradient colors={['#5B4FE8', '#8B7CF6']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.primaryButton}>
+            <Pressable onPress={onCoverage} style={styles.buttonInner} android_ripple={{ color: 'rgba(255,255,255,0.2)' }}>
+              <MapPin size={20} color="#FFFFFF" strokeWidth={2.2} />
+              <Text className="ml-2 font-plus-bold text-white">Buscar farmacias con esta receta</Text>
+            </Pressable>
+          </LinearGradient>
 
-      <LinearGradient colors={['#5B4FE8', '#8B7CF6']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.primaryButton}>
-        <Pressable onPress={onSave} style={styles.buttonInner} android_ripple={{ color: 'rgba(255,255,255,0.2)' }}>
-          <CheckCircle2 size={20} color="#FFFFFF" strokeWidth={2.2} />
-          <Text className="ml-2 font-plus-bold text-white">Guardar en Tratamientos</Text>
-        </Pressable>
-      </LinearGradient>
+          <LinearGradient colors={['#5B4FE8', '#8B7CF6']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.primaryButton}>
+            <Pressable onPress={onSave} style={styles.buttonInner} android_ripple={{ color: 'rgba(255,255,255,0.2)' }}>
+              <CheckCircle2 size={20} color="#FFFFFF" strokeWidth={2.2} />
+              <Text className="ml-2 font-plus-bold text-white">Guardar en Tratamientos</Text>
+            </Pressable>
+          </LinearGradient>
+        </>
+      ) : null}
 
       <Pressable
         onPress={onNewScan}

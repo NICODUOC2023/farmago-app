@@ -13,6 +13,7 @@ import { useEffect } from 'react';
 import '@/global.css';
 
 import { colors } from '@/constants/colors';
+import { ProPaywallModal } from '@/components/paywall/ProPaywallModal';
 import { AuthProvider } from '@/providers/AuthProvider';
 
 SplashScreen.preventAutoHideAsync();
@@ -38,12 +39,15 @@ export default function RootLayout() {
 
   return (
     <AuthProvider>
-      <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.background } }} initialRouteName="login">
-        <Stack.Screen name="index" />
-        <Stack.Screen name="login" />
-        <Stack.Screen name="escaneo" options={{ presentation: 'modal' }} />
-        <Stack.Screen name="recetas" />
-      </Stack>
+      <>
+        <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.background } }} initialRouteName="login">
+          <Stack.Screen name="index" />
+          <Stack.Screen name="login" />
+          <Stack.Screen name="escaneo" options={{ presentation: 'modal' }} />
+          <Stack.Screen name="recetas" />
+        </Stack>
+        <ProPaywallModal />
+      </>
     </AuthProvider>
   );
 }
