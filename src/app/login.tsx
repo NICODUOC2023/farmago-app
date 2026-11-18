@@ -11,7 +11,7 @@ type Mode = 'login' | 'register';
 
 export default function LoginScreen() {
   const router = useRouter();
-  const { session, signIn, isLoading } = useAuth();
+  const { session, signIn, signOut, isLoading } = useAuth();
 
   const [mode, setMode] = useState<Mode>('login');
   const [email, setEmail] = useState('');
@@ -20,14 +20,15 @@ export default function LoginScreen() {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [registrationInProgress, setRegistrationInProgress] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
 
   useEffect(() => {
-    if (session) {
+    if (session && !registrationInProgress) {
       router.replace('/');
     }
-  }, [session, router]);
+  }, [session, registrationInProgress, router]);
 
   const isRegister = mode === 'register';
 
@@ -62,8 +63,11 @@ export default function LoginScreen() {
     setBusy(true);
     try {
       if (isRegister) {
-        await signUp({ email: email.trim(), password });
-        setInfo('Te enviaremos un correo para confirmar tu cuenta.');
+        setRegistrationInProgress(true);
+        const result = await signUp({ email: email.trim(), password });
+        if (result.session) await signOut();
+        setMode('login');
+        setInfo('Cuenta creada con éxito. Ahora puedes loguearte con tu nueva cuenta.');
         setPassword('');
         setConfirmPassword('');
         setShowPassword(false);
@@ -75,6 +79,7 @@ export default function LoginScreen() {
       setError(e instanceof Error ? e.message : 'No pudimos completar la acción.');
     } finally {
       setBusy(false);
+      setRegistrationInProgress(false);
     }
   };
 
@@ -115,10 +120,10 @@ export default function LoginScreen() {
         contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', paddingHorizontal: 24, paddingVertical: 32 }}
         keyboardShouldPersistTaps="handled">
         <View style={{ width: '100%', maxWidth: 300, alignSelf: 'center'}}>
-          <View style={{ marginBottom: 8, alignItems: 'center' }}>
+          <View style={{ width: '100%', maxWidth: 220, height: 120, alignSelf: 'center', marginBottom: 0, overflow: 'hidden' }}>
             <Image
-              source={require('../../assets/images/logo.png')}
-              style={{ width: '100%', height: 120, resizeMode: 'contain' }}
+              source={require('../../assets/images/logofinal.png')}
+              style={{ width: '100%', height: '100%', resizeMode: 'cover' }}
               accessibilityLabel="farmaGO"
             />
          
@@ -248,7 +253,7 @@ export default function LoginScreen() {
 
           {isRegister ? (
             <Text style={{ marginTop: 12, fontSize: 12, color: colors.textSecondary, textAlign: 'center' }}>
-              Te enviaremos un correo para confirmar tu cuenta.
+              Completa tus datos para crear tu cuenta y acceder a farmaGO.
             </Text>
           ) : null}
 
@@ -283,7 +288,11 @@ export default function LoginScreen() {
               <View />
             )}
             <Pressable
-              onPress={() => setMode(isRegister ? 'login' : 'register')}
+              onPress={() => {
+                setMode(isRegister ? 'login' : 'register');
+                setError(null);
+                setInfo(null);
+              }}
               accessibilityRole="button">
               <Text style={{ fontSize: 13, fontWeight: '400', color: colors.primary }}>
                 {isRegister ? 'Ya tengo cuenta' : 'Crear cuenta'}

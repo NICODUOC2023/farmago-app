@@ -6,11 +6,12 @@ import {
   Platform,
   Pressable,
   ScrollView,
+  StyleSheet,
   Text,
   View,
 } from 'react-native';
 import { Info, MapPin, Navigation, Pill, RefreshCw, X } from "lucide-react-native";
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { MedicationSearch } from '@/components/medications/MedicationSearch';
@@ -38,6 +39,18 @@ import type { MedicationResult } from '@/services/medications';
 type SearchStatus = 'idle' | 'locating' | 'searching' | 'success' | 'error';
 
 const CARD = 'rounded-3xl bg-surface px-4 py-4 shadow-lg shadow-indigo-950/10';
+const styles = StyleSheet.create({
+  idlePanel: {
+    paddingHorizontal: 0,
+    paddingVertical: 0,
+    borderRadius: 0,
+    backgroundColor: 'transparent',
+    shadowOpacity: 0,
+    shadowRadius: 0,
+    shadowOffset: { width: 0, height: 0 },
+    elevation: 0,
+  },
+});
 
 export function MapScreen({ onNavigate }: { onNavigate?: (href: string) => void } = {}) {
   const insets = useSafeAreaInsets();
@@ -45,7 +58,7 @@ export function MapScreen({ onNavigate }: { onNavigate?: (href: string) => void 
   const selectedFromScan = useSelectedMedication((s) => s.medication);
   const setStoredMedication = useSelectedMedication((s) => s.setMedication);
   const coverageMapTarget = useCoverage((s) => s.mapTarget);
-  const consumeCoverageMapTarget = useCoverage((s) => s.consumeMapTarget);
+  const clearMapTarget = useCoverage((s) => s.clearMapTarget);
 
   const [userLocation, setUserLocation] = useState<Coordinates | null>(null);
   const [pharmacies, setPharmacies] = useState<NearbyPharmacy[]>([]);
@@ -57,7 +70,7 @@ export function MapScreen({ onNavigate }: { onNavigate?: (href: string) => void 
   const [selectedMedication, setSelectedMedication] = useState<MedicationResult | null>(null);
   const [radiusM, setRadiusM] = useState<number>(100_000);
   const [locationSource, setLocationSource] = useState<'gps' | 'commune'>('gps');
-  const [showCommunePicker, setShowCommunePicker] = useState(false);
+  const [showLocationPicker, setShowLocationPicker] = useState(false);
   const [communeName, setCommuneName] = useState<string | null>(null);
   const [initialQuery, setInitialQuery] = useState<string | undefined>(undefined);
   const consumeSearchQuery = useSearchQuery((s) => s.consume);
@@ -66,7 +79,46 @@ export function MapScreen({ onNavigate }: { onNavigate?: (href: string) => void 
     if (q) setTimeout(() => setInitialQuery(q), 0);
   }, [consumeSearchQuery]);
 
-  const selectedPharmacy = pharmacies.find((pharmacy) => pharmacy.id === selectedId) ?? null;
+  const coverageMapPharmacy = useMemo<NearbyPharmacy | null>(() => {
+    if (!coverageMapTarget) return null;
+
+    const { pharmacy, medication } = coverageMapTarget;
+    return {
+      id: pharmacy.pharmacy_id,
+      name: pharmacy.pharmacy_name,
+      chain: null,
+      address: pharmacy.address,
+      latitude: pharmacy.latitude,
+      longitude: pharmacy.longitude,
+      distanceM: pharmacy.distance_m,
+      isAvailable: true,
+      price: medication?.price ?? pharmacy.total_price,
+      quantity: medication?.quantity ?? null,
+      lastSyncedAt: medication?.last_synced_at ?? pharmacy.last_synced_at,
+      openingTime: null,
+      closingTime: null,
+      phone: null,
+    };
+  }, [coverageMapTarget]);
+  const displayedPharmacies = useMemo(
+    () => (coverageMapPharmacy ? [coverageMapPharmacy] : pharmacies),
+    [coverageMapPharmacy, pharmacies],
+  );
+  const displayedSelectedId = coverageMapPharmacy?.id ?? selectedId;
+  const displayedUserLocation = coverageMapPharmacy ? SANTIAGO_CENTER : userLocation ?? SANTIAGO_CENTER;
+  const activeMedication = useMemo<MedicationResult | null>(() => {
+    if (!coverageMapTarget) return selectedMedication ?? selectedFromScan;
+    if (!coverageMapTarget.medication) return null;
+    return {
+      id: coverageMapTarget.medication.medication_id,
+      name: coverageMapTarget.medication.name,
+      barcode: null,
+      description: null,
+      presentation_unit: null,
+    };
+  }, [coverageMapTarget, selectedMedication, selectedFromScan]);
+  const displayedStatus = coverageMapPharmacy ? 'success' : status;
+  const selectedPharmacy = displayedPharmacies.find((pharmacy) => pharmacy.id === displayedSelectedId) ?? null;
 
 
   // En Expo Go para Android, el SDK de Google Maps que trae Expo Go usa una
@@ -88,11 +140,17 @@ export function MapScreen({ onNavigate }: { onNavigate?: (href: string) => void 
   }, []);
 
   const runSearch = useCallback(
-    async (medicationId?: string | null, coordsOverride?: Coordinates | null, radiusOverride?: number) => {
+    async (
+      medicationId?: string | null,
+      coordsOverride?: Coordinates | null,
+      radiusOverride?: number,
+      forceGps = false,
+    ) => {
       if (!session) {
         return;
       }
 
+      clearMapTarget();
       setErrorMessage(null);
       setCanOpenSettings(false);
       setStatus('locating');
@@ -100,7 +158,7 @@ export function MapScreen({ onNavigate }: { onNavigate?: (href: string) => void 
       try {
         let coordinates = coordsOverride ?? null;
         if (!coordinates) {
-          if (locationSource === 'commune' && communeName) {
+          if (!forceGps && locationSource === 'commune' && communeName) {
             const c = SANTIAGO_COMMUNES.find((x) => x.name === communeName);
             if (c) {
               coordinates = { latitude: c.latitude, longitude: c.longitude };
@@ -123,7 +181,7 @@ export function MapScreen({ onNavigate }: { onNavigate?: (href: string) => void 
               });
               if (!accepted) {
                 setLocationSource('commune');
-                if (!communeName) setShowCommunePicker(true);
+                setShowLocationPicker(true);
                 setStatus('idle');
                 return;
               }
@@ -131,6 +189,7 @@ export function MapScreen({ onNavigate }: { onNavigate?: (href: string) => void 
             }
             coordinates = await getCurrentCoordinates();
             setLocationSource('gps');
+            setCommuneName(null);
           }
         }
         setUserLocation(coordinates);
@@ -160,9 +219,7 @@ export function MapScreen({ onNavigate }: { onNavigate?: (href: string) => void 
           setErrorMessage(error.message);
           if (error.code === 'permission_denied' || error.code === 'services_disabled') {
             setLocationSource('commune');
-            if (!communeName) {
-              setShowCommunePicker(true);
-            }
+            setShowLocationPicker(true);
           }
         } else if (error instanceof PharmacySearchError) {
           setErrorMessage(error.message);
@@ -171,7 +228,7 @@ export function MapScreen({ onNavigate }: { onNavigate?: (href: string) => void 
         }
       }
     },
-    [session, radiusM, communeName, locationSource],
+    [session, radiusM, communeName, locationSource, clearMapTarget],
   );
 
   useEffect(() => {
@@ -181,70 +238,32 @@ export function MapScreen({ onNavigate }: { onNavigate?: (href: string) => void 
     }
   }, [selectedFromScan]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(() => {
-    if (!coverageMapTarget) return;
-
-    const { pharmacy, medication } = coverageMapTarget;
-    const mapPharmacy: NearbyPharmacy = {
-      id: pharmacy.pharmacy_id,
-      name: pharmacy.pharmacy_name,
-      chain: null,
-      address: pharmacy.address,
-      latitude: pharmacy.latitude,
-      longitude: pharmacy.longitude,
-      distanceM: pharmacy.distance_m,
-      isAvailable: true,
-      price: medication?.price ?? pharmacy.total_price,
-      quantity: medication?.quantity ?? null,
-      lastSyncedAt: medication?.last_synced_at ?? pharmacy.last_synced_at,
-      openingTime: null,
-      closingTime: null,
-      phone: null,
-    };
-
-    setPharmacies([mapPharmacy]);
-    setSelectedId(mapPharmacy.id);
-    setUserLocation(SANTIAGO_CENTER);
-    setLocationSource('commune');
-    setCommuneName('Santiago');
-    setSelectedMedication(
-      medication
-        ? {
-            id: medication.medication_id,
-            name: medication.name,
-            barcode: null,
-            description: null,
-            presentation_unit: null,
-          }
-        : null,
-    );
-    setStoredMedication(null);
-    setStatus('success');
-    setErrorMessage(null);
-    consumeCoverageMapTarget();
-  }, [coverageMapTarget, consumeCoverageMapTarget, setStoredMedication]);
-
-
-
   const handleSelectMedication = useCallback((medication: MedicationResult) => {
     setSelectedMedication(medication);
     void runSearch(medication.id);
   }, [runSearch]);
 
   const handleSelectCommune = useCallback((commune: Commune) => {
-    setShowCommunePicker(false);
+    setShowLocationPicker(false);
     setCommuneName(commune.name);
     setLocationSource('commune');
     const coords = { latitude: commune.latitude, longitude: commune.longitude };
-    void runSearch(selectedMedication?.id ?? null, coords);
-  }, [runSearch, selectedMedication]);
+    void runSearch(activeMedication?.id ?? null, coords);
+  }, [runSearch, activeMedication]);
+
+  const handleUseCurrentLocation = useCallback(() => {
+    setShowLocationPicker(false);
+    setUserLocation(null);
+    setLocationSource('gps');
+    void runSearch(activeMedication?.id ?? null, null, undefined, true);
+  }, [runSearch, activeMedication]);
 
   return (
     <View className="flex-1 bg-background" style={{ flex: 1 }}>
       <PharmacyMap
-        userLocation={userLocation ?? SANTIAGO_CENTER}
-        pharmacies={pharmacies}
-        selectedId={selectedId}
+        userLocation={displayedUserLocation}
+        pharmacies={displayedPharmacies}
+        selectedId={displayedSelectedId}
         onSelectPharmacy={setSelectedId}
       />
 
@@ -257,10 +276,10 @@ export function MapScreen({ onNavigate }: { onNavigate?: (href: string) => void 
           <View className="w-full max-w-md">
             {session ? (
               <MedicationSearch
-                selectedId={selectedMedication?.id}
+                selectedId={activeMedication?.id}
                 onSelect={handleSelectMedication}
-                locationLabel={locationSource === 'commune' ? (communeName ?? 'Elige Comuna') : 'Ubicación actual'}
-                onLocationPress={locationSource === 'commune' ? () => setShowCommunePicker(true) : undefined}
+                locationLabel={coverageMapPharmacy ? 'Santiago' : locationSource === 'commune' ? (communeName ?? 'Elige Comuna') : 'Ubicación actual'}
+                onLocationPress={!coverageMapPharmacy ? () => setShowLocationPicker(true) : undefined}
                 initialQuery={initialQuery}
               />
             ) : (
@@ -276,15 +295,17 @@ export function MapScreen({ onNavigate }: { onNavigate?: (href: string) => void 
           </View>
         </View>
 
-        {selectedMedication ? (
+        {activeMedication ? (
           <View className="mt-2 flex-row items-center rounded-2xl bg-surface px-3 py-2 shadow-md shadow-indigo-900/10">
             <Pill size={15} color={colors.primary} strokeWidth={2.4} />
             <Text numberOfLines={1} className="ml-2 flex-1 font-plus-semibold text-[12px] text-text-primary">
-              {selectedMedication.name}
+              {activeMedication.name}
             </Text>
             <Pressable
               onPress={() => {
+                clearMapTarget();
                 setSelectedMedication(null);
+                setStoredMedication(null);
                 setStatus('idle');
                 setPharmacies([]);
                 setSelectedId(null);
@@ -311,35 +332,38 @@ export function MapScreen({ onNavigate }: { onNavigate?: (href: string) => void 
 
       {/* Panel inferior: resultado / estado / acceso */}
       <View
-        style={{ position: 'absolute', left: 16, right: 16, bottom: Math.max(insets.bottom, 8) + 96 }}
-        className="z-10">
-        {!session ? null : status === 'idle' ? (
+        style={[
+          { position: 'absolute', left: 16, right: 16, bottom: Math.max(insets.bottom, 8) + 96 },
+          displayedStatus === 'idle' ? styles.idlePanel : undefined,
+        ]}
+        className={`${CARD} z-10`}>
+        {!session ? null : displayedStatus === 'idle' ? (
           <View style={{ alignItems: 'center' }}>
             <Pressable
-              onPress={() => void runSearch(selectedMedication?.id, userLocation, radiusM)}
+              onPress={() => void runSearch(activeMedication?.id, userLocation, radiusM)}
               style={{ marginTop: 12, paddingHorizontal: 24, paddingVertical: 12, borderRadius: 9999, backgroundColor: colors.primary, minWidth: 220, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
               <MapPin size={16} color="#FFFFFF" strokeWidth={2.4} />
               <Text style={{ marginLeft: 8, color: '#FFFFFF', fontWeight: '600', fontSize: 14 }}>
-                {selectedMedication ? 'Buscar farmacias con este medicamento' : 'Buscar farmacias cercanas'}
+                {activeMedication ? 'Buscar farmacias con este medicamento' : 'Buscar farmacias cercanas'}
               </Text>
             </Pressable>
           </View>
-        ) : status === 'locating' || status === 'searching' ? (
-          <View className={`${CARD} flex-row items-center`}>
+        ) : displayedStatus === 'locating' || displayedStatus === 'searching' ? (
+          <View className="flex-row items-center">
             <ActivityIndicator color={colors.primary} />
             <Text className="ml-3 font-plus-medium text-[14px] text-text-primary">
-              {status === 'locating' ? 'Obteniendo tu ubicación…' : 'Buscando farmacias cercanas…'}
+              {displayedStatus === 'locating' ? 'Obteniendo tu ubicación…' : 'Buscando farmacias cercanas…'}
             </Text>
           </View>
-        ) : status === 'error' ? (
-          <View className={CARD}>
+        ) : displayedStatus === 'error' ? (
+          <>
             <Text className="font-plus-semibold text-[15px] text-text-primary">
               No pudimos completar la búsqueda
             </Text>
             <Text className="mt-1 font-plus-medium text-[13px] text-text-secondary">{errorMessage}</Text>
             <View className="mt-3 flex-row gap-2">
               <Pressable
-                onPress={() => void runSearch(selectedMedication?.id, userLocation, radiusM)}
+                onPress={() => void runSearch(activeMedication?.id, userLocation, radiusM)}
                 className="flex-1 flex-row items-center justify-center rounded-full bg-primary py-3">
                 <RefreshCw size={16} color="#FFFFFF" strokeWidth={2.4} />
                 <Text className="ml-2 font-plus-semibold text-[14px] text-white">Reintentar</Text>
@@ -352,9 +376,9 @@ export function MapScreen({ onNavigate }: { onNavigate?: (href: string) => void 
                 </Pressable>
               ) : null}
             </View>
-          </View>
-        ) : pharmacies.length === 0 ? (
-          <View className={CARD}>
+          </>
+        ) : displayedPharmacies.length === 0 ? (
+          <>
             <Text className="font-plus-semibold text-[15px] text-text-primary">
               No encontramos farmacias cercanas
             </Text>
@@ -363,11 +387,11 @@ export function MapScreen({ onNavigate }: { onNavigate?: (href: string) => void 
             </Text>
             <SearchButton
               label="Buscar de nuevo"
-              onPress={() => void runSearch(selectedMedication?.id ?? null, userLocation, radiusM)}
+              onPress={() => void runSearch(activeMedication?.id ?? null, userLocation, radiusM)}
             />
-          </View>
+          </>
         ) : (
-          <View className={CARD}>
+          <>
             <View className="mb-2 flex-row items-center justify-between">
               <View className="flex-row items-center">
                 <View
@@ -388,6 +412,7 @@ export function MapScreen({ onNavigate }: { onNavigate?: (href: string) => void 
               </View>
               <Pressable
                 onPress={() => {
+                  clearMapTarget();
                   setStatus('idle');
                   setPharmacies([]);
                   setSelectedId(null);
@@ -414,23 +439,39 @@ export function MapScreen({ onNavigate }: { onNavigate?: (href: string) => void 
                   </Text>
                 </View>
                 ) : null}
-                {selectedMedication && selectedPharmacy && selectedPharmacy.price != null ? (
+                {activeMedication && selectedPharmacy && selectedPharmacy.price != null ? (
                   <Text className="mt-2 font-plus-bold text-[15px] text-primary">
                     ${selectedPharmacy.price.toLocaleString('es-CL')}
                   </Text>
                 ) : null}
-          </View>
+          </>
         )}
       </View>
 
 
 
-      {showCommunePicker ? (
+      {showLocationPicker ? (
         <View
           style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.35)' }}
           className="z-50 items-center justify-center px-6">
           <View className="w-full max-w-md rounded-3xl bg-surface p-4" style={{ maxHeight: '70%' }}>
-            <Text className="mb-3 font-plus-bold text-[15px] text-text-primary">Selecciona una comuna</Text>
+            <Text className="mb-3 font-plus-bold text-[15px] text-text-primary">Elige tu ubicación</Text>
+            <Pressable
+              onPress={handleUseCurrentLocation}
+              accessibilityRole="button"
+              className="mb-2 flex-row items-center rounded-2xl bg-primarySoft px-3 py-3">
+              <Navigation size={16} color={colors.primary} strokeWidth={2.4} />
+              <Text className="ml-2 font-plus-semibold text-[14px] text-primary">Usar mi ubicación actual</Text>
+            </Pressable>
+            {canOpenSettings ? (
+              <Pressable
+                onPress={() => void Linking.openSettings()}
+                accessibilityRole="button"
+                className="mb-3 items-center rounded-2xl px-3 py-2">
+                <Text className="font-plus-semibold text-[13px] text-primary">Abrir ajustes de ubicación</Text>
+              </Pressable>
+            ) : null}
+            <Text className="mb-2 font-plus-medium text-[12px] text-text-secondary">O selecciona una comuna</Text>
             <ScrollView style={{ maxHeight: 400 }}>
               {SANTIAGO_COMMUNES.map((commune) => (
                 <Pressable
@@ -443,7 +484,7 @@ export function MapScreen({ onNavigate }: { onNavigate?: (href: string) => void 
               ))}
             </ScrollView>
             <Pressable
-              onPress={() => setShowCommunePicker(false)}
+              onPress={() => setShowLocationPicker(false)}
               className="mt-3 items-center justify-center rounded-full bg-primarySoft py-2.5">
               <Text className="font-plus-semibold text-[13px] text-primary">Cancelar</Text>
             </Pressable>

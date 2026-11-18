@@ -1,5 +1,6 @@
 import { getSupabase } from '@/lib/supabase';
 import type { Database } from '@/types/database.types';
+import { isStockFresh } from '@/constants/stock';
 
 /**
  * Búsqueda de farmacias cercanas a través de la RPC `nearby_pharmacies`.
@@ -76,6 +77,31 @@ function normalize(row: NearbyPharmaciesRow): NearbyPharmacy {
   };
 }
 
+function hasBetterStockSnapshot(candidate: NearbyPharmacy, current: NearbyPharmacy): boolean {
+  const candidateFresh = isStockFresh(candidate.lastSyncedAt);
+  const currentFresh = isStockFresh(current.lastSyncedAt);
+  if (candidateFresh !== currentFresh) return candidateFresh;
+  if (candidate.isAvailable !== current.isAvailable) return candidate.isAvailable;
+
+  const candidateTimestamp = Date.parse(candidate.lastSyncedAt ?? '');
+  const currentTimestamp = Date.parse(current.lastSyncedAt ?? '');
+  const candidateHasTimestamp = Number.isFinite(candidateTimestamp);
+  const currentHasTimestamp = Number.isFinite(currentTimestamp);
+  if (candidateHasTimestamp !== currentHasTimestamp) return candidateHasTimestamp;
+  return candidateHasTimestamp && candidateTimestamp > currentTimestamp;
+}
+
+function uniquePharmacies(rows: NearbyPharmacy[]): NearbyPharmacy[] {
+  const byId = new Map<string, NearbyPharmacy>();
+  for (const pharmacy of rows) {
+    const current = byId.get(pharmacy.id);
+    if (!current || hasBetterStockSnapshot(pharmacy, current)) {
+      byId.set(pharmacy.id, pharmacy);
+    }
+  }
+  return [...byId.values()];
+}
+
 export async function findNearbyPharmacies({
   latitude,
   longitude,
@@ -108,7 +134,9 @@ export async function findNearbyPharmacies({
     throw new PharmacySearchError('request_failed', error.message);
   }
 
-  return (data ?? []).map(normalize);
+  // Without a medication filter the RPC left-joins every stock row, so it can
+  // return the same pharmacy more than once. Keep one marker/card per pharmacy.
+  return uniquePharmacies((data ?? []).map(normalize));
 }
 
 export type PharmacyCoverageMedication = {

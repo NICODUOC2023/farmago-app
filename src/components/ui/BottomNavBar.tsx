@@ -29,7 +29,9 @@ function NavItem({ icon: Icon, label, route, activeTab, active }: ItemProps) {
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={label}
-      onPress={() => router.push(route as Href)}
+      onPress={() => {
+        if (!isActive) router.navigate(route as Href);
+      }}
       style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 8, minHeight: 56 }}>
       <View
         className="h-10 w-10 items-center justify-center rounded-2xl"

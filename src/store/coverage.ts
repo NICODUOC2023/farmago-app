@@ -13,11 +13,11 @@ type CoverageState = {
   mapTarget: CoverageMapTarget | null;
   setCoverageInput: (input: { medicationNames: string[]; latitude: number; longitude: number }) => void;
   setMapTarget: (target: CoverageMapTarget) => void;
-  consumeMapTarget: () => CoverageMapTarget | null;
+  clearMapTarget: () => void;
   clear: () => void;
 };
 
-export const useCoverage = create<CoverageState>((set, get) => ({
+export const useCoverage = create<CoverageState>((set) => ({
   medicationNames: [],
   latitude: null,
   longitude: null,
@@ -25,10 +25,6 @@ export const useCoverage = create<CoverageState>((set, get) => ({
   setCoverageInput: (input) =>
     set({ medicationNames: input.medicationNames, latitude: input.latitude, longitude: input.longitude }),
   setMapTarget: (target) => set({ mapTarget: target }),
-  consumeMapTarget: () => {
-    const target = get().mapTarget;
-    set({ mapTarget: null });
-    return target;
-  },
+  clearMapTarget: () => set({ mapTarget: null }),
   clear: () => set({ medicationNames: [], latitude: null, longitude: null, mapTarget: null }),
 }));

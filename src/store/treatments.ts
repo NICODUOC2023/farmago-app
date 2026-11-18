@@ -18,7 +18,7 @@ type ScanResult = {
 
 type TreatmentState = {
   groups: TratamientoGroup[];
-  addFromScan: (receta: ScanResult) => void;
+  addFromScan: (receta: ScanResult) => Promise<void>;
   toggleTaken: (itemId: string, slot: number) => void;
   removeGroup: (groupId: string) => void;
   loadFromSupabase: () => Promise<void>;
@@ -30,33 +30,9 @@ export const useTreatments = create<TreatmentState>()(
   persist(
     (set) => ({
       groups: isSupabaseConfigured ? [] : tratamientos,
-      addFromScan: (receta) => {
-        void (async () => {
-          try {
-            const id = await createTreatment({
-              medicamentos: receta.medicamentos,
-              notas: receta.notas,
-              medico: receta.medico,
-              institucion: receta.institucion,
-            });
-            if (id) {
-              const items = receta.medicamentos.map((med, i) => ({
-                id: `${id}-${i}`,
-                pharmacy: 'Receta escaneada',
-                medicine: med.nombre,
-                dose: med.dosis,
-                frequency: med.frecuencia,
-                duration: med.duracion,
-                taken: Array.from({ length: dosesPerDay(med.frecuencia) }, () => false),
-              }));
-              await scheduleTreatmentReminders(id, items);
-            }
-          } catch {
-            // Persistencia provisional.
-          }
-        })();
+      addFromScan: async (receta) => {
+        const groupId = `scan-${newId()}`;
         set((state) => {
-          const groupId = `scan-${newId()}`;
           return {
             groups: [
               {
@@ -80,6 +56,29 @@ export const useTreatments = create<TreatmentState>()(
             ],
           };
         });
+
+        try {
+          const id = await createTreatment({
+            medicamentos: receta.medicamentos,
+            notas: receta.notas,
+            medico: receta.medico,
+            institucion: receta.institucion,
+          });
+          if (id) {
+            const items = receta.medicamentos.map((med, i) => ({
+              id: `${id}-${i}`,
+              pharmacy: 'Receta escaneada',
+              medicine: med.nombre,
+              dose: med.dosis,
+              frequency: med.frecuencia,
+              duration: med.duracion,
+              taken: Array.from({ length: dosesPerDay(med.frecuencia) }, () => false),
+            }));
+            await scheduleTreatmentReminders(id, items);
+          }
+        } catch {
+          // Se conserva la versión local si la persistencia remota falla.
+        }
       },
       loadFromSupabase: async () => {
         try {

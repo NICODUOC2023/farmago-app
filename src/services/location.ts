@@ -54,8 +54,12 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
  * Devuelve `true` si fue concedido.
  */
 export async function requestForegroundPermission(): Promise<boolean> {
-  const { status } = await Location.requestForegroundPermissionsAsync();
-  return status === Location.PermissionStatus.GRANTED;
+  const current = await Location.getForegroundPermissionsAsync();
+  if (current.granted) return true;
+  if (!current.canAskAgain) return false;
+
+  const requested = await Location.requestForegroundPermissionsAsync();
+  return requested.granted;
 }
 
 /**

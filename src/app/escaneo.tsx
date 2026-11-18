@@ -20,22 +20,62 @@ import { colors } from '@/constants/colors';
 import { useTreatments } from '@/store/treatments';
 import { ConsentSheet } from '@/components/privacy/ConsentSheet';
 import { grantConsent, hasConsent } from '@/services/consents';
-import { useCoverage } from '@/store/coverage';
-import { SANTIAGO_CENTER } from '@/data/mock';
 import { analyzePrescriptionImage, AnalyzedPrescription, AnalyzedMedicine } from '@/services/gemini';
-import { searchMedications } from '@/services/medications';
+import { searchMedications, type MedicationResult } from '@/services/medications';
 import { useSelectedMedication } from '@/store/selectedMedication';
 import { usePaywall } from '@/store/paywall';
 
 type Phase = 'pick' | 'preview' | 'loading' | 'done';
 
 type ImageAsset = { uri: string; base64: string; mimeType: string };
+type CatalogLookup =
+  | { status: 'found'; medication: MedicationResult }
+  | { status: 'not_found' }
+  | { status: 'error' };
 
 const PICK_OPTIONS: ImagePicker.ImagePickerOptions = {
   mediaTypes: ['images'],
   quality: 0.5,
   base64: true,
 };
+
+function normalizeMedicationName(value: string): string {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+async function findCatalogMatch(name: string): Promise<CatalogLookup> {
+  const normalizedQuery = normalizeMedicationName(name);
+  if (normalizedQuery.length < 2) return { status: 'not_found' };
+
+  try {
+    const candidates = await searchMedications(name);
+    const matches = candidates.filter((candidate) => {
+      const normalizedName = normalizeMedicationName(candidate.name);
+      return (
+        normalizedName === normalizedQuery ||
+        normalizedName.startsWith(`${normalizedQuery} `) ||
+        normalizedQuery.startsWith(`${normalizedName} `)
+      );
+    });
+
+    const medication = matches.sort((a, b) => {
+      const aName = normalizeMedicationName(a.name);
+      const bName = normalizeMedicationName(b.name);
+      const aExact = aName === normalizedQuery;
+      const bExact = bName === normalizedQuery;
+      if (aExact !== bExact) return aExact ? -1 : 1;
+      return Math.abs(aName.length - normalizedQuery.length) - Math.abs(bName.length - normalizedQuery.length);
+    })[0];
+    return medication ? { status: 'found', medication } : { status: 'not_found' };
+  } catch {
+    return { status: 'error' };
+  }
+}
 
 export default function ScanScreen() {
   const router = useRouter();
@@ -44,14 +84,15 @@ export default function ScanScreen() {
   const openPaywall = usePaywall((s) => s.openPaywall);
   const paywallRequested = useRef(false);
   const setSelectedMedication = useSelectedMedication((s) => s.setMedication);
-  const setCoverageInput = useCoverage((s) => s.setCoverageInput);
 
   const [phase, setPhase] = useState<Phase>('pick');
   const [image, setImage] = useState<ImageAsset | null>(null);
   const [result, setResult] = useState<AnalyzedPrescription | null>(null);
   const [editedMeds, setEditedMeds] = useState<AnalyzedMedicine[]>([]);
+  const [catalogMatches, setCatalogMatches] = useState<(CatalogLookup | null)[]>([]);
   const [showPrescriptionConsent, setShowPrescriptionConsent] = useState(false);
   const [showHealthConsent, setShowHealthConsent] = useState(false);
+  const [savingTreatment, setSavingTreatment] = useState(false);
   const [pendingPicker, setPendingPicker] = useState<(() => void) | null>(null);
 
   useEffect(() => {
@@ -106,6 +147,7 @@ export default function ScanScreen() {
       if (!asset?.base64 || !asset.uri) return;
       setImage({ uri: asset.uri, base64: asset.base64, mimeType: asset.mimeType ?? 'image/jpeg' });
       setResult(null);
+      setCatalogMatches([]);
       setPhase('preview');
     } catch {
       Alert.alert('Error', 'No se pudo obtener la imagen. Intenta de nuevo.');
@@ -133,8 +175,12 @@ export default function ScanScreen() {
         return;
       }
 
+      const matches = await Promise.all(
+        parsed.medicamentos.map((medicine) => findCatalogMatch(medicine.nombre)),
+      );
       setResult(parsed);
       setEditedMeds(parsed.medicamentos);
+      setCatalogMatches(matches);
       setPhase('done');
     } catch (error) {
       setPhase('preview');
@@ -143,7 +189,7 @@ export default function ScanScreen() {
   };
 
   const saveToTreatments = async () => {
-    if (!result) return;
+    if (!result || savingTreatment) return;
     const meds = editedMeds.length ? editedMeds : result.medicamentos;
     if (meds.length === 0) {
       Alert.alert('No se detectaron medicamentos', 'Prueba con una foto más clara o escanea otra receta.');
@@ -158,15 +204,20 @@ export default function ScanScreen() {
       setShowHealthConsent(true);
       return;
     }
-    addFromScan({
-      medicamentos: meds,
-      notas: result.notas,
-      medico: result.medico,
-      institucion: result.institucion,
-    });
-    Alert.alert('Guardado', 'Tu tratamiento se guardó correctamente.', [
-      { text: 'OK', onPress: () => router.replace('/recetas/tratamiento') },
-    ]);
+    setSavingTreatment(true);
+    try {
+      await addFromScan({
+        medicamentos: meds,
+        notas: result.notas,
+        medico: result.medico,
+        institucion: result.institucion,
+      });
+      Alert.alert('Guardado', 'Tu tratamiento se guardó correctamente.', [
+        { text: 'OK', onPress: () => router.replace('/recetas/tratamiento') },
+      ]);
+    } finally {
+      setSavingTreatment(false);
+    }
   };
 
   const requestSaveToTreatments = () => {
@@ -174,12 +225,14 @@ export default function ScanScreen() {
   };
 
   const acceptHealthConsent = async () => {
+    if (savingTreatment) return;
+    setSavingTreatment(true);
     try {
       await grantConsent('health_data_processing');
       setShowHealthConsent(false);
       if (!result) return;
       const meds = editedMeds.length ? editedMeds : result.medicamentos;
-      addFromScan({
+      await addFromScan({
         medicamentos: meds,
         notas: result.notas,
         medico: result.medico,
@@ -189,23 +242,15 @@ export default function ScanScreen() {
         { text: 'OK', onPress: () => router.replace('/recetas/tratamiento') },
       ]);
     } catch {
-      setShowHealthConsent(false);
+      Alert.alert('No se pudo guardar', 'Intenta guardar el tratamiento nuevamente.');
+    } finally {
+      setSavingTreatment(false);
     }
   };
 
-  const searchCoverage = () => {
-    if (!result) return;
-    const meds = editedMeds.length ? editedMeds : result.medicamentos;
-    if (!meds.some((med) => med.nombre.trim())) {
-      Alert.alert('No se detectaron medicamentos', 'Prueba con una foto más clara o escanea otra receta.');
-      return;
-    }
-    setCoverageInput({
-      medicationNames: meds.map((m) => m.nombre).filter(Boolean),
-      latitude: SANTIAGO_CENTER.latitude,
-      longitude: SANTIAGO_CENTER.longitude,
-    });
-    router.push('/cobertura');
+  const searchMedicationOnMap = (medication: MedicationResult) => {
+    setSelectedMedication(medication);
+    router.replace('/');
   };
 
   const acceptPrescriptionConsent = async () => {
@@ -251,6 +296,7 @@ export default function ScanScreen() {
             title="Autorización para guardar tu tratamiento"
             body="Para guardar este tratamiento, farmaGO almacenará los medicamentos, dosis, frecuencia, duración, horarios y tomas asociadas a tu cuenta. Estos datos se utilizarán únicamente para ayudarte a gestionar tu tratamiento dentro de la aplicación."
             checkboxLabel="Acepto que farmaGO trate y almacene estos datos de salud para gestionar mi tratamiento."
+            busy={savingTreatment}
             onAccept={acceptHealthConsent}
             onCancel={() => setShowHealthConsent(false)}
           />
@@ -261,13 +307,21 @@ export default function ScanScreen() {
         <DoneStep
           result={result}
           editedMeds={editedMeds}
+          catalogMatches={catalogMatches}
           onChangeMeds={setEditedMeds}
+          onInvalidateCatalogMatch={(index) =>
+            setCatalogMatches((current) =>
+              current.map((match, currentIndex) => (currentIndex === index ? null : match)),
+            )
+          }
+          saving={savingTreatment}
           onSave={requestSaveToTreatments}
-          onCoverage={searchCoverage}
+          onSearchMedication={searchMedicationOnMap}
           onNewScan={() => {
             setImage(null);
             setResult(null);
             setEditedMeds([]);
+            setCatalogMatches([]);
             setPhase('pick');
           }}
         />
@@ -347,7 +401,9 @@ function PreviewStep({
         <View className="items-center py-8">
           <ActivityIndicator size="large" color={colors.primary} />
           <Text className="mt-4 font-plus-semibold text-text-primary">Analizando receta…</Text>
-          <Text className="mt-1 text-sm font-plus-medium text-text-secondary">Gemini está leyendo la imagen</Text>
+          <Text className="mt-1 text-sm font-plus-medium text-text-secondary">
+            Comprobando los medicamentos reconocidos en el catálogo
+          </Text>
         </View>
       ) : (
         <>
@@ -375,16 +431,22 @@ function PreviewStep({
 function DoneStep({
   result,
   editedMeds,
+  catalogMatches,
   onChangeMeds,
+  onInvalidateCatalogMatch,
+  saving,
   onSave,
-  onCoverage,
+  onSearchMedication,
   onNewScan,
 }: {
   result: AnalyzedPrescription | null;
   editedMeds: AnalyzedMedicine[];
+  catalogMatches: (CatalogLookup | null)[];
   onChangeMeds: (meds: AnalyzedMedicine[]) => void;
+  onInvalidateCatalogMatch: (index: number) => void;
+  saving: boolean;
   onSave: () => void;
-  onCoverage: () => void;
+  onSearchMedication: (medication: MedicationResult) => void;
   onNewScan: () => void;
 }) {
   if (!result) return null;
@@ -395,6 +457,7 @@ function DoneStep({
     const next = [...editedMeds];
     next[index] = { ...next[index], [field]: value };
     onChangeMeds(next);
+    if (field === 'nombre') onInvalidateCatalogMatch(index);
   };
 
   return (
@@ -422,7 +485,9 @@ function DoneStep({
       )}
 
       <View className="gap-2.5">
-        {editedMeds.map((med, index) => (
+        {editedMeds.map((med, index) => {
+          const catalogMatch = catalogMatches[index] ?? null;
+          return (
           <View key={`${med.nombre}-${index}`} className="rounded-3xl bg-surface px-4 py-3.5">
             <View className="flex-row items-center">
               <View className="h-10 w-10 items-center justify-center rounded-full" style={{ backgroundColor: colors.primarySoft }}>
@@ -466,8 +531,29 @@ function DoneStep({
                 />
               </View>
             </View>
+            {catalogMatch?.status === 'found' ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`Buscar ${catalogMatch.medication.name} en el mapa`}
+                onPress={() => onSearchMedication(catalogMatch.medication)}
+                className="mt-3 flex-row items-center justify-center rounded-full bg-primarySoft px-4 py-2.5">
+                <MapPin size={16} color={colors.primary} strokeWidth={2.3} />
+                <Text numberOfLines={1} className="ml-2 flex-shrink font-plus-semibold text-[12px] text-primary">
+                  Buscar {catalogMatch.medication.name} en el mapa
+                </Text>
+              </Pressable>
+            ) : med.nombre.trim() ? (
+              <Text className="mt-3 text-[11px] font-plus-medium text-text-secondary">
+                {catalogMatch?.status === 'error'
+                  ? 'No se pudo verificar el catálogo. Este medicamento se conservará en el tratamiento.'
+                  : catalogMatch?.status === 'not_found'
+                    ? 'No aparece en el catálogo; igual se guardará en el tratamiento.'
+                    : 'Nombre editado: no se confirmó una coincidencia. Se guardará en el tratamiento.'}
+              </Text>
+            ) : null}
           </View>
-        ))}
+          );
+        })}
       </View>
 
       {!hasRecognizedMedication ? (
@@ -490,18 +576,14 @@ function DoneStep({
 
       {hasRecognizedMedication ? (
         <>
+          <Text className="text-center text-[11px] font-plus-medium text-text-secondary">
+            Solo los medicamentos encontrados en el catálogo pueden buscarse en el mapa. Todos se conservarán al guardar el tratamiento.
+          </Text>
           <LinearGradient colors={['#5B4FE8', '#8B7CF6']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.primaryButton}>
-            <Pressable onPress={onCoverage} style={styles.buttonInner} android_ripple={{ color: 'rgba(255,255,255,0.2)' }}>
-              <MapPin size={20} color="#FFFFFF" strokeWidth={2.2} />
-              <Text className="ml-2 font-plus-bold text-white">Buscar farmacias con esta receta</Text>
-            </Pressable>
-          </LinearGradient>
-
-          <LinearGradient colors={['#5B4FE8', '#8B7CF6']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.primaryButton}>
-            <Pressable onPress={onSave} style={styles.buttonInner} android_ripple={{ color: 'rgba(255,255,255,0.2)' }}>
-              <CheckCircle2 size={20} color="#FFFFFF" strokeWidth={2.2} />
-              <Text className="ml-2 font-plus-bold text-white">Guardar en Tratamientos</Text>
-            </Pressable>
+          <Pressable onPress={onSave} disabled={saving} style={styles.buttonInner} android_ripple={{ color: 'rgba(255,255,255,0.2)' }}>
+            {saving ? <ActivityIndicator color="#FFFFFF" /> : <CheckCircle2 size={20} color="#FFFFFF" strokeWidth={2.2} />}
+            <Text className="ml-2 font-plus-bold text-white">{saving ? 'Guardando…' : 'Guardar en Tratamientos'}</Text>
+          </Pressable>
           </LinearGradient>
         </>
       ) : null}

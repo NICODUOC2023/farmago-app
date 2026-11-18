@@ -76,22 +76,17 @@ export function ProPaywallModal() {
 
             <Pressable
               accessibilityRole="button"
+              accessibilityLabel="Conseguir PharmaGo PRO"
               onPress={activatePro}
               style={({ pressed }) => [styles.cta, pressed && styles.ctaPressed]}>
-              <Sparkles size={18} color="#FFFFFF" strokeWidth={2.3} />
-              <Text style={styles.ctaText}>Conseguir PharmaGo PRO</Text>
-            </Pressable>
-
-            <Text style={styles.disclaimer}>
-              Maqueta de demostración: se activará PRO solo en esta sesión. No hay pagos ni conexión al backend.
-            </Text>
-
-            <Pressable
-              accessibilityRole="button"
-              onPress={dismissPaywall}
-              hitSlop={8}
-              style={styles.laterButton}>
-              <Text style={styles.laterText}>Ahora no</Text>
+              <LinearGradient
+                colors={['#5144D6', '#7869EF']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={styles.ctaGradient}>
+                <Sparkles size={18} color="#FFFFFF" strokeWidth={2.3} />
+                <Text style={styles.ctaText}>Conseguir PharmaGo PRO</Text>
+              </LinearGradient>
             </Pressable>
           </ScrollView>
         </View>
@@ -238,14 +233,20 @@ const styles = StyleSheet.create({
     lineHeight: 16,
   },
   cta: {
+    width: '100%',
+    minHeight: 58,
+    overflow: 'hidden',
+    borderRadius: 18,
+    backgroundColor: colors.primary,
+  },
+  ctaGradient: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 9,
-    minHeight: 54,
-    marginTop: 6,
-    borderRadius: 17,
-    backgroundColor: colors.primary,
+    minHeight: 58,
+    paddingHorizontal: 16,
   },
   ctaPressed: {
     opacity: 0.88,
@@ -255,24 +256,5 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontFamily: 'PlusJakartaSans_700Bold',
     fontSize: 14,
-  },
-  disclaimer: {
-    marginTop: 11,
-    color: colors.textSecondary,
-    fontFamily: 'PlusJakartaSans_400Regular',
-    fontSize: 10,
-    lineHeight: 15,
-    textAlign: 'center',
-  },
-  laterButton: {
-    alignSelf: 'center',
-    marginTop: 13,
-    paddingHorizontal: 16,
-    paddingVertical: 7,
-  },
-  laterText: {
-    color: colors.textSecondary,
-    fontFamily: 'PlusJakartaSans_600SemiBold',
-    fontSize: 12,
   },
 });
